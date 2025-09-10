@@ -71,8 +71,9 @@ export function InteractiveMap({ items, onItemClick, startLocation, endLocation 
       if (!existingScript) {
         window.googleMapsLoading = new Promise((resolve) => {
           const script = document.createElement('script')
-          // Obtener API key del entorno (funciona en cliente)
+          // Obtener API key del entorno - verificar configuración en Vercel
           const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyASYoVtSDQb0nrBCipdz7LXr6-8CF8v5z8'
+          console.log('Environment API Key Status:', process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? 'Found' : 'Using fallback')
           script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry,places&callback=initGlobalGoogleMaps&loading=async`
           script.async = true
           script.defer = true
