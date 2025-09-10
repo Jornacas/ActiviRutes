@@ -77,10 +77,16 @@ export function InteractiveMap({ items, onItemClick, startLocation, endLocation 
           
           // Callback global único
           ;(window as any).initGlobalGoogleMaps = () => {
-            window.googleMapsLoaded = true
-            delete (window as any).initGlobalGoogleMaps
-            setIsLoaded(true)
-            resolve()
+            try {
+              window.googleMapsLoaded = true
+              delete (window as any).initGlobalGoogleMaps
+              setIsLoaded(true)
+              resolve()
+            } catch (error) {
+              console.warn('Error menor en Google Maps:', error)
+              setIsLoaded(true)
+              resolve()
+            }
           }
           
           script.onerror = () => {
