@@ -27,6 +27,8 @@ declare global {
   interface Window {
     google: any
     initMap: () => void
+    googleMapsLoading?: Promise<void>
+    googleMapsLoaded?: boolean
   }
 }
 
@@ -50,26 +52,56 @@ export function InteractiveMap({ items, onItemClick, startLocation, endLocation 
     return improvedAddress
   }
 
-  // Cargar Google Maps API
+  // Cargar Google Maps API (solo una vez globalmente)
   useEffect(() => {
-    if (typeof window !== 'undefined' && !window.google) {
-      const script = document.createElement('script')
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=geometry,places&callback=initMap`
-      script.async = true
-      script.defer = true
-      
-      window.initMap = () => {
+    if (typeof window !== 'undefined') {
+      if (window.google) {
         setIsLoaded(true)
+        return
       }
       
-      document.head.appendChild(script)
-      
-      return () => {
-        document.head.removeChild(script)
-        delete window.initMap
+      // Si ya está cargando, esperar a que termine
+      if (window.googleMapsLoading) {
+        window.googleMapsLoading.then(() => setIsLoaded(true))
+        return
       }
-    } else if (window.google) {
-      setIsLoaded(true)
+      
+      // Si no existe ningún script de Google Maps, crearlo
+      const existingScript = document.querySelector('script[src*="maps.googleapis.com"]')
+      if (!existingScript) {
+        window.googleMapsLoading = new Promise((resolve) => {
+          const script = document.createElement('script')
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=geometry,places&callback=initGlobalGoogleMaps`
+          script.async = true
+          script.defer = true
+          
+          // Callback global único
+          ;(window as any).initGlobalGoogleMaps = () => {
+            window.googleMapsLoaded = true
+            delete (window as any).initGlobalGoogleMaps
+            setIsLoaded(true)
+            resolve()
+          }
+          
+          script.onerror = () => {
+            console.error('Error cargando Google Maps API')
+            delete window.googleMapsLoading
+            resolve() // Resolver incluso en error para evitar colgarse
+          }
+          
+          document.head.appendChild(script)
+        })
+      } else {
+        // Si el script ya existe, esperar a que cargue
+        const checkLoaded = () => {
+          if (window.google) {
+            setIsLoaded(true)
+          } else {
+            setTimeout(checkLoaded, 100)
+          }
+        }
+        checkLoaded()
+      }
     }
   }, [])
 
@@ -93,29 +125,46 @@ export function InteractiveMap({ items, onItemClick, startLocation, endLocation 
       
       const geocodePromises = items.map((item, index) => {
         const improvedAddress = improveAddress(item.name, item.address)
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(improvedAddress)}`
+        // Usar el endpoint interno de API para evitar CORS
+        const apiUrl = `/api/geocode?q=${encodeURIComponent(improvedAddress)}`
         
+        // Delay para evitar rate limiting
+        const delay = index * 100 // Reducido a 100ms ya que el servidor gestiona el rate limiting
         
-
-        return fetch(url)
-          .then(response => response.json())
-          .then(data => {
-            if (data && data.length > 0) {
-              const position = {
-                lat: parseFloat(data[0].lat),
-                lng: parseFloat(data[0].lon),
+        return new Promise(resolve => {
+          setTimeout(() => {
+            fetch(apiUrl)
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`)
               }
-              return { item, index, position, improvedAddress }
-            } else {
-              console.warn(`Geocoding falló para ${item.name}: No se encontraron resultados de OpenStreetMap`)
-              console.log('Dirección intentada:', improvedAddress)
-              return null
-            }
-          })
-          .catch(error => {
-            console.error(`Error en Geocoding para ${item.name}:`, error)
-            return null
-          })
+              return response.json()
+            })
+            .then(data => {
+              if (data && data.length > 0) {
+                const position = {
+                  lat: parseFloat(data[0].lat),
+                  lng: parseFloat(data[0].lon),
+                }
+                resolve({ item, index, position, improvedAddress: data[0].display_name || improvedAddress })
+              } else {
+                console.warn(`Geocoding falló para ${item.name}: No se encontraron resultados`)
+                console.log('Dirección intentada:', improvedAddress)
+                resolve(null)
+              }
+            })
+            .catch(error => {
+              console.error(`Error en Geocoding para ${item.name}:`, error)
+              // El endpoint ya maneja fallbacks, pero por si acaso
+              const barcelonaApprox = {
+                lat: 41.3851 + (Math.random() - 0.5) * 0.1,
+                lng: 2.1734 + (Math.random() - 0.5) * 0.1,
+              }
+              console.log(`Usando coordenadas aproximadas para ${item.name}:`, barcelonaApprox)
+              resolve({ item, index, position: barcelonaApprox, improvedAddress })
+            })
+          }, delay)
+        })
       })
 
       Promise.all(geocodePromises).then(results => {
@@ -200,9 +249,14 @@ export function InteractiveMap({ items, onItemClick, startLocation, endLocation 
     if (endMarker) endMarker.setMap(null);
 
     const geocodeLocation = async (location: string, type: 'start' | 'end') => {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}, Barcelona, España`;
+      const apiUrl = `/api/geocode?q=${encodeURIComponent(`${location}, Barcelona, España`)}`;
       try {
-        const response = await fetch(url);
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
         if (data && data.length > 0) {
           const position = {
@@ -233,11 +287,57 @@ export function InteractiveMap({ items, onItemClick, startLocation, endLocation 
           return position;
         } else {
           console.warn(`Geocoding falló para ${location} (${type}): No se encontraron resultados de OpenStreetMap`);
-          return null;
+          // Fallback a coordenadas del centro de Barcelona
+          const barcelonaCenter = { lat: 41.3851, lng: 2.1734 };
+          const marker = new window.google.maps.Marker({
+            position: barcelonaCenter,
+            map,
+            title: `${type === 'start' ? 'Punto de Inicio' : 'Punto de Destino'} (ubicación aproximada)`,
+            icon: {
+              path: window.google.maps.SymbolPath.CIRCLE,
+              fillColor: type === 'start' ? '#4CAF50' : '#F44336',
+              fillOpacity: 0.7, // Menos opacidad para indicar aproximación
+              strokeColor: '#ffffff',
+              strokeWeight: 2,
+              scale: 10,
+            },
+            label: {
+              text: type === 'start' ? '~A' : '~B',
+              color: 'white',
+              fontSize: '12px',
+              fontWeight: 'bold',
+            },
+          });
+          if (type === 'start') setStartMarker(marker);
+          else setEndMarker(marker);
+          return barcelonaCenter;
         }
       } catch (error) {
         console.error(`Error en Geocoding para ${location} (${type}):`, error);
-        return null;
+        // Fallback silencioso a coordenadas del centro de Barcelona
+        const barcelonaCenter = { lat: 41.3851, lng: 2.1734 };
+        const marker = new window.google.maps.Marker({
+          position: barcelonaCenter,
+          map,
+          title: `${type === 'start' ? 'Punto de Inicio' : 'Punto de Destino'} (ubicación aproximada - error de red)`,
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            fillColor: '#999999', // Color gris para indicar error
+            fillOpacity: 0.5,
+            strokeColor: '#ffffff',
+            strokeWeight: 2,
+            scale: 8,
+          },
+          label: {
+            text: '!',
+            color: 'white',
+            fontSize: '12px',
+            fontWeight: 'bold',
+          },
+        });
+        if (type === 'start') setStartMarker(marker);
+        else setEndMarker(marker);
+        return barcelonaCenter;
       }
     };
 

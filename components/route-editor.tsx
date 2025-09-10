@@ -481,6 +481,7 @@ export default function RouteEditor({
   const [draggedFromDay, setDraggedFromDay] = useState<string | null>(null)
   const [dropIndicator, setDropIndicator] = useState<{day: string, index: number} | null>(null)
   const [isDirty, setIsDirty] = useState(false)
+  const [selectedDayInDayView, setSelectedDayInDayView] = useState<string>("")
 
   const routeOptions = useMemo(() => generateRouteOptions(config.items, routeFilters), [config.items, routeFilters])
 
@@ -514,6 +515,13 @@ export default function RouteEditor({
     }
   }, [config.items, config.type, config.selectedDay, config.deliveryType, config.weekStart])
 
+  // Inicializar día seleccionado en vista día
+  useEffect(() => {
+    if (config.selectedDay && !selectedDayInDayView) {
+      setSelectedDayInDayView(config.selectedDay)
+    }
+  }, [config.selectedDay, selectedDayInDayView])
+
   const loadSavedRoutes = async () => {
     try {
       const routes = await loadRoutesFromSheet()
@@ -536,8 +544,8 @@ export default function RouteEditor({
     }
     
     // En vista de día, filtrar solo los elementos del día seleccionado
-    if (viewMode === "day" && config.selectedDay) {
-      console.log(`   → Filtrando por día "${config.selectedDay}"`)
+    if (viewMode === "day" && selectedDayInDayView) {
+      console.log(`   → Filtrando por día "${selectedDayInDayView}"`)
       
       // Mapear días españoles a catalanes
       const dayMapping: { [key: string]: string } = {
@@ -548,8 +556,8 @@ export default function RouteEditor({
         'viernes': 'Divendres'
       }
       
-      const catalanDay = dayMapping[config.selectedDay.toLowerCase()] || config.selectedDay
-      console.log(`   → Día español "${config.selectedDay}" → catalán "${catalanDay}"`)
+      const catalanDay = dayMapping[selectedDayInDayView.toLowerCase()] || selectedDayInDayView
+      console.log(`   → Día español "${selectedDayInDayView}" → catalán "${catalanDay}"`)
       
       // USAR weeklyPlansByDay en lugar de config.items para reflejar los cambios de reorganización
       const dayItems = weeklyPlansByDay[catalanDay] || []
@@ -564,7 +572,7 @@ export default function RouteEditor({
     const result = optimizedRoute ? optimizedRoute.items : routeOptions[0]?.items || []
     console.log("   → Usando ruta optimizada o opciones:", result.length, "items")
     return result
-  }, [optimizedRoute, routeOptions, routeFilters.sortBy, manualOrder, viewMode, config.selectedDay, config.items, weeklyPlansByDay])
+  }, [optimizedRoute, routeOptions, routeFilters.sortBy, manualOrder, viewMode, selectedDayInDayView, config.items, weeklyPlansByDay])
 
   const optimizeRoute = async () => {
     setIsOptimizing(true)
@@ -880,14 +888,106 @@ export default function RouteEditor({
   };
 
   const [transporterLink, setTransporterLink] = useState<string | null>(null);
+  const [showTransporterModal, setShowTransporterModal] = useState(false);
+  const [localIP, setLocalIP] = useState<string | null>(null);
 
-  const generateTransporterLink = () => {
+  // Función para detectar IP local automáticamente
+  const detectLocalIP = async () => {
+    try {
+      // Crear una conexión WebRTC para detectar la IP local
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      
+      pc.createDataChannel('');
+      await pc.createOffer().then(offer => pc.setLocalDescription(offer));
+      
+      return new Promise<string>((resolve) => {
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            const candidate = event.candidate.candidate;
+            const ipMatch = candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
+            if (ipMatch && !ipMatch[1].startsWith('127.')) {
+              resolve(ipMatch[1]);
+              pc.close();
+            }
+          }
+        };
+        
+        // Timeout después de 5 segundos
+        setTimeout(() => {
+          pc.close();
+          resolve('');
+        }, 5000);
+      });
+    } catch (error) {
+      console.log('No se pudo detectar IP automáticamente:', error);
+      return '';
+    }
+  };
+
+  const generateTransporterLink = async () => {
+    if (currentItems.length === 0) {
+      alert("No hay paradas en la ruta para generar el link del transportista");
+      return;
+    }
+
     const currentRouteId = `${config.type}-${config.selectedDay || 'general'}-${Date.now()}`;
+    const routeData = {
+      items: currentItems,
+      metadata: {
+        type: config.type,
+        day: config.selectedDay,
+        generatedAt: new Date().toISOString(),
+        totalStops: currentItems.length
+      }
+    };
+    
     // Save the current route items to localStorage for the transporter app to load
-    localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify({ items: currentItems }));
-    const link = `${window.location.origin}/transporter/${currentRouteId}`;
-    setTransporterLink(link);
-    alert(`Link para el transportista generado y guardado localmente:\n\n${link}\n\n¡Puedes copiarlo y enviarlo!`);
+    localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify(routeData));
+    
+    // Generar link accesible desde cualquier lugar
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      // En desarrollo - necesita túnel público
+      const transporterLink = `${window.location.origin}/transporter/${currentRouteId}`;
+      setTransporterLink(transporterLink);
+      setLocalIP("desarrollo-local"); // Flag para mostrar instrucciones especiales
+    } else {
+      // En producción - usar URL normal (ya accesible públicamente)
+      setTransporterLink(`${window.location.origin}/transporter/${currentRouteId}`);
+      setLocalIP("produccion"); // Flag para mostrar que está listo
+    }
+    
+    setShowTransporterModal(true);
+  };
+
+  const copyTransporterLink = () => {
+    if (transporterLink) {
+      navigator.clipboard.writeText(transporterLink).then(() => {
+        alert("✅ Link copiado al portapapeles");
+      }).catch(() => {
+        alert("❌ No se pudo copiar el link");
+      });
+    }
+  };
+
+  const shareTransporterLink = () => {
+    if (transporterLink && navigator.share) {
+      navigator.share({
+        title: 'Ruta ActiviRutes',
+        text: `Ruta de ${currentItems.length} paradas para transportista`,
+        url: transporterLink,
+      }).catch(console.error);
+    } else {
+      copyTransporterLink();
+    }
+  };
+
+  const generateQRCode = (url: string) => {
+    // Generar QR code usando una API pública
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+    return qrUrl;
   };
 
   const handleClose = () => {
@@ -898,6 +998,28 @@ export default function RouteEditor({
     } else {
       onClose();
     }
+  };
+
+  // Función para cambiar día en vista día
+  const switchToDay = (dayName: string) => {
+    setSelectedDayInDayView(dayName);
+    console.log(`🗓️ Cambiando a día: ${dayName}`);
+  };
+
+  // Obtener lista de días disponibles
+  const getAvailableDays = () => {
+    const allDays = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes'];
+    return allDays.filter(day => {
+      const dayMapping: { [key: string]: string } = {
+        'lunes': 'Dilluns',
+        'martes': 'Dimarts', 
+        'miércoles': 'Dimecres',
+        'jueves': 'Dijous',
+        'viernes': 'Divendres'
+      }
+      const catalanDay = dayMapping[day];
+      return weeklyPlansByDay[catalanDay] && weeklyPlansByDay[catalanDay].length > 0;
+    });
   };
 
   return (
@@ -1092,12 +1214,41 @@ export default function RouteEditor({
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <span className="flex items-center">
-                    <Badge variant="outline" className="mr-3 font-medium text-lg px-3 py-1">
-                      {config.selectedDay || "Ruta"}
-                    </Badge>
-                    <span>{currentItems.length} centros</span>
-                  </span>
+                  <div className="flex items-center gap-4">
+                    {/* Navegador de días */}
+                    <div className="flex items-center gap-1">
+                      {getAvailableDays().map((day, index, array) => {
+                        const isSelected = day === selectedDayInDayView;
+                        const isFirst = index === 0;
+                        const isLast = index === array.length - 1;
+                        
+                        return (
+                          <div key={day} className="flex items-center">
+                            {!isFirst && <span className="text-gray-300 mx-1">→</span>}
+                            <Button
+                              onClick={() => switchToDay(day)}
+                              variant={isSelected ? "default" : "outline"}
+                              size="sm"
+                              className={`
+                                ${isSelected 
+                                  ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                                  : 'bg-transparent hover:bg-blue-50'
+                                }
+                                font-medium capitalize min-w-[80px]
+                              `}
+                            >
+                              {day}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    
+                    {/* Contador de centros */}
+                    <span className="text-gray-600 font-medium">
+                      {currentItems.length} centros
+                    </span>
+                  </div>
                   <div className="flex items-end gap-2">
                     <Button variant="outline" size="sm" onClick={() => exportStepByStep(currentItems)}>
                       <Truck className="h-4 w-4 mr-2 text-black" />
@@ -1420,6 +1571,128 @@ export default function RouteEditor({
           )}
         </div>
       </div>
+
+      {/* Modal del Link del Transportista */}
+      {showTransporterModal && transporterLink && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-lg max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold mb-4 flex items-center">
+              <Truck className="h-5 w-5 mr-2 text-purple-600" />
+              Link para el Transportista
+            </h3>
+            
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-3 rounded border">
+                <p className="text-sm text-gray-600 mb-2">Link generado:</p>
+                <p className="font-mono text-xs bg-white p-2 rounded border break-all">
+                  {transporterLink}
+                </p>
+              </div>
+
+              {/* Instrucciones para acceso remoto */}
+              {localIP === "desarrollo-local" && (
+                <div className="bg-blue-50 p-4 rounded border-l-4 border-blue-400">
+                  <p className="text-sm text-blue-800 font-medium mb-3">
+                    🌐 Para acceso remoto del transportista (desde cualquier lugar):
+                  </p>
+                  <div className="text-xs text-blue-700 space-y-3">
+                    
+                    <div className="bg-blue-100 p-3 rounded">
+                      <p className="font-medium mb-2">🚀 OPCIÓN 1: Ngrok (Más fácil)</p>
+                      <ol className="list-decimal ml-4 space-y-1">
+                        <li>Instala ngrok: <code className="bg-white px-1 rounded">npm install -g ngrok</code></li>
+                        <li>En otra terminal: <code className="bg-white px-1 rounded">ngrok http 3000</code></li>
+                        <li>Copia la URL pública (ej: <code className="bg-white px-1 rounded">https://abc123.ngrok.io</code>)</li>
+                        <li>Reemplaza localhost en el link de arriba</li>
+                      </ol>
+                    </div>
+
+                    <div className="bg-blue-100 p-3 rounded">
+                      <p className="font-medium mb-2">☁️ OPCIÓN 2: Deplegar en producción</p>
+                      <ol className="list-decimal ml-4 space-y-1">
+                        <li>Sube a <strong>Vercel</strong>: <code className="bg-white px-1 rounded">npx vercel</code></li>
+                        <li>O a <strong>Netlify</strong>: Conecta el repo de GitHub</li>
+                        <li>Tendrás una URL pública permanente</li>
+                      </ol>
+                    </div>
+
+                    <div className="bg-blue-100 p-3 rounded">
+                      <p className="font-medium mb-2">📱 OPCIÓN 3: LocalTunnel (Alternativa)</p>
+                      <ol className="list-decimal ml-4 space-y-1">
+                        <li>Instala: <code className="bg-white px-1 rounded">npm install -g localtunnel</code></li>
+                        <li>Ejecuta: <code className="bg-white px-1 rounded">lt --port 3000</code></li>
+                        <li>Te dará una URL pública temporal</li>
+                      </ol>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+
+              {localIP === "produccion" && (
+                <div className="bg-green-50 p-3 rounded border-l-4 border-green-400">
+                  <p className="text-sm text-green-800 font-medium mb-2">
+                    ✅ Link listo para usar desde cualquier lugar:
+                  </p>
+                  <div className="text-xs text-green-700">
+                    <p>📱 El transportista puede usar este link con datos móviles</p>
+                    <p>🌐 Funciona desde cualquier ubicación con internet</p>
+                  </div>
+                </div>
+              )}
+              
+              <div className="bg-blue-50 p-3 rounded border-l-4 border-blue-400">
+                <p className="text-sm text-blue-800">
+                  <strong>📱 Funciones del transportista:</strong>
+                </p>
+                <ul className="text-xs text-blue-700 mt-1 space-y-1">
+                  <li>• Ver toda la ruta optimizada en Google Maps</li>
+                  <li>• Reordenar paradas en tiempo real</li>
+                  <li>• Firmar digitalmente con el dedo</li>
+                  <li>• Tomar fotos del almacenamiento</li>
+                  <li>• Registro automático en Google Sheets</li>
+                </ul>
+              </div>
+
+              {/* QR Code para acceso fácil */}
+              <div className="bg-gray-50 p-3 rounded border text-center">
+                <p className="text-sm text-gray-600 mb-2">📱 Código QR para acceso rápido:</p>
+                <img 
+                  src={generateQRCode(transporterLink)} 
+                  alt="QR Code para acceso móvil" 
+                  className="mx-auto border rounded"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    e.currentTarget.nextElementSibling!.style.display = 'block';
+                  }}
+                />
+                <p className="text-xs text-gray-500 mt-2" style={{display: 'none'}}>
+                  QR no disponible - usa los botones de abajo
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <Button onClick={copyTransporterLink} className="flex-1">
+                  <MapPin className="h-4 w-4 mr-2" />
+                  Copiar Link
+                </Button>
+                <Button onClick={shareTransporterLink} variant="outline" className="flex-1">
+                  <Package className="h-4 w-4 mr-2" />
+                  Compartir
+                </Button>
+              </div>
+
+              <Button 
+                onClick={() => setShowTransporterModal(false)} 
+                variant="outline" 
+                className="w-full"
+              >
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

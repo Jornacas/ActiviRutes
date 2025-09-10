@@ -345,7 +345,7 @@ function processDeliveryData(sheetData: GoogleSheetRow[]): DeliverySchool[] {
       }
     }
 
-    if (!name || !address || !day || !activity) {
+    if (!name || !day || !activity) {
       console.warn(`⚠️ Fila ${index + 1} incompleta, saltando...`)
       return
     }
@@ -398,19 +398,14 @@ function processDeliveryData(sheetData: GoogleSheetRow[]): DeliverySchool[] {
     if (!schoolsMap.has(name)) {
       schoolsMap.set(name, {
         name,
-        address,
+        address: address || `Escola ${name}`, // Fallback si no hay dirección
         location,
         courseStart,
         activities: {},
       })
     } else {
-      // Si la escuela ya existe pero esta fila tiene una fecha válida de inicio de curso,
-      // actualizar la fecha (para casos donde la primera fila no tenía fecha)
-      const existingSchool = schoolsMap.get(name)!
-      if (courseStartStr && courseStartStr.trim() && !isNaN(courseStart.getTime())) {
-        existingSchool.courseStart = courseStart
-        console.log(`🔄 ${name}: Fecha de inicio actualizada a ${courseStart}`)
-      }
+      // Si la escuela ya existe, mantener su fecha de inicio original
+      // No actualizamos courseStart para evitar sobrescribir con fechas de otras actividades
     }
 
     const school = schoolsMap.get(name)!
@@ -436,10 +431,22 @@ function processDeliveryData(sheetData: GoogleSheetRow[]): DeliverySchool[] {
   console.log(`📊 Procesadas ${result.length} escuelas para entregas`)
 
   // Debug: mostrar resumen por escuela
+  console.log("📋 ESCUELAS PROCESADAS EN TOTAL:")
   result.forEach((school) => {
     const totalActivities = Object.values(school.activities).flat().length
     const days = Object.keys(school.activities).join(", ")
     console.log(`🏫 ${school.name}: ${totalActivities} actividades en días: ${days}`)
+  })
+
+  // Debug específico: verificar escuelas problemáticas
+  const problematicSchools = ["Llacuna", "FructuosGelabert", "TuroBlau", "BetaniaPatmos", "TrentaPassos"]
+  problematicSchools.forEach((schoolName) => {
+    const school = result.find(s => s.name === schoolName)
+    if (school) {
+      console.log(`✅ ENCONTRADA: ${schoolName} con ${Object.values(school.activities).flat().length} actividades`)
+    } else {
+      console.log(`❌ NO ENCONTRADA: ${schoolName}`)
+    }
   })
 
   return result
@@ -567,51 +574,82 @@ function generateDeliveryPlan(
     return []
   }
 
-  // Filtrar escuelas válidas
-  const validSchools = schools.filter((school) => {
-    console.log(`\n🔍 VALIDANDO: ${school.name}`)
-    console.log(`   Fecha inicio curso: ${school.courseStart}`)
+  // Filtrar actividades válidas por escuela (en lugar de filtrar escuelas completas)
+  const validSchools: DeliverySchool[] = []
+  
+  schools.forEach((school) => {
+    console.log(`\n🔍 PROCESANDO: ${school.name}`)
     
-    // Verificar fecha de inicio del curso
-    if (!school.courseStart || isNaN(school.courseStart.getTime())) {
-      console.warn(`❌ ${school.name}: Fecha de inicio del curso inválida`)
-      return false
+    // Crear escuela filtrada con solo las actividades válidas
+    const filteredSchool: DeliverySchool = {
+      name: school.name,
+      address: school.address,
+      location: school.location,
+      courseStart: school.courseStart,
+      activities: {}
     }
-
-    // Filtrar según tipo de entrega
-    if (deliveryType === "inicio-curso") {
-      try {
-        const courseWeekStart = startOfWeek(school.courseStart, { weekStartsOn: 1 })
-        console.log(`   Semana curso: ${courseWeekStart.toISOString().split('T')[0]}`)
-        console.log(`   Semana seleccionada: ${weekStart.toISOString().split('T')[0]}`)
+    
+    let hasValidActivities = false
+    
+    // Procesar cada día de actividades
+    Object.entries(school.activities).forEach(([day, dayActivities]) => {
+      const validActivities = dayActivities.filter((activity) => {
+        console.log(`   📅 Validando actividad ${activity.activity} el ${day}:`)
+        console.log(`      Fecha inicio: ${activity.courseStart}`)
         
-        // Comparar si las fechas de inicio de semana son iguales
-        const sameWeek = courseWeekStart.getTime() === weekStart.getTime()
-        console.log(`   ¿Misma semana?: ${sameWeek}`)
-        
-        if (!sameWeek) {
-          console.log(`❌ ${school.name}: No empieza en la semana seleccionada`)
+        // Verificar fecha de inicio de la actividad
+        if (!activity.courseStart || isNaN(activity.courseStart.getTime())) {
+          console.log(`      ❌ Fecha de inicio inválida`)
           return false
         }
-      } catch (error) {
-        console.warn(`❌ ${school.name}: Error procesando fecha de inicio:`, error)
-        return false
+
+        // Filtrar según tipo de entrega
+        if (deliveryType === "inicio-curso") {
+          try {
+            const activityWeekStart = startOfWeek(activity.courseStart, { weekStartsOn: 1 })
+            console.log(`      Semana actividad: ${activityWeekStart.toISOString().split('T')[0]}`)
+            console.log(`      Semana seleccionada: ${weekStart.toISOString().split('T')[0]}`)
+            
+            // Comparar si las fechas de inicio de semana son iguales
+            const sameWeek = activityWeekStart.getTime() === weekStart.getTime()
+            console.log(`      ¿Misma semana?: ${sameWeek}`)
+            
+            if (!sameWeek) {
+              console.log(`      ❌ No empieza en la semana seleccionada`)
+              return false
+            }
+          } catch (error) {
+            console.warn(`      ❌ Error procesando fecha de inicio:`, error)
+            return false
+          }
+        }
+        
+        console.log(`      ✅ Actividad válida`)
+        return true
+      })
+      
+      // Si hay actividades válidas para este día, agregarlas
+      if (validActivities.length > 0) {
+        filteredSchool.activities[day] = validActivities
+        hasValidActivities = true
+        console.log(`   ✅ ${validActivities.length} actividades válidas el ${day}`)
       }
+    })
+    
+    // Solo agregar la escuela si tiene al menos una actividad válida
+    if (hasValidActivities) {
+      // Actualizar la fecha de inicio del curso con la primera actividad válida
+      const firstValidActivity = Object.values(filteredSchool.activities).flat()[0]
+      filteredSchool.courseStart = firstValidActivity.courseStart
+      
+      validSchools.push(filteredSchool)
+      console.log(`✅ ${school.name}: VÁLIDA con actividades filtradas`)
+    } else {
+      console.log(`❌ ${school.name}: Sin actividades válidas para la semana seleccionada`)
     }
-
-    // Verificar que tenga actividades
-    const schoolDays = Object.keys(school.activities)
-    console.log(`   Días con actividades: ${schoolDays.join(", ")}`)
-    if (schoolDays.length === 0) {
-      console.log(`❌ ${school.name}: No tiene actividades`)
-      return false
-    }
-
-    console.log(`✅ ${school.name}: VÁLIDA`)
-    return true
   })
 
-  console.log(`✅ Escuelas válidas: ${validSchools.length}`)
+  console.log(`✅ Escuelas con actividades válidas: ${validSchools.length}`)
 
   // CONSOLIDAR: Una entrega por centro en el PRIMER DÍA con actividades (no festivo)
   const deliveryPlans: DeliveryPlan[] = []
@@ -668,6 +706,8 @@ function generateDeliveryPlan(
     // Si no encontramos ningún día laborable con actividades, posponer
     if (!deliveryDay) {
       console.log(`⏭️ ${school.name} → No hay días laborables con actividades, posponiendo a siguiente semana`)
+      console.log(`   Días con actividades: ${schoolDays.join(", ")}`)
+      console.log(`   Días laborables disponibles: ${availableDays.map(d => d.name).join(", ")}`)
       return
     }
 
