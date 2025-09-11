@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useCallback, memo } from "react"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -94,6 +94,165 @@ type DeliveryType = "inicio-curso" | "trimestral" | "puntual"
 
 interface GoogleSheetRow {
   [key: string]: string
+}
+
+// Componente memoizado para SchoolCard para evitar re-renders innecesarios
+const SchoolCard = memo(({ 
+  school, 
+  index, 
+  materials, 
+  expandedSchool, 
+  setExpandedSchool, 
+  toggleCompleted 
+}: {
+  school: School
+  index: number
+  materials: string[]
+  expandedSchool: string | null
+  setExpandedSchool: (name: string | null) => void
+  toggleCompleted: (name: string) => void
+}) => {
+  const handleToggle = useCallback(() => {
+    toggleCompleted(school.name)
+  }, [school.name, toggleCompleted])
+  
+  const handleExpand = useCallback(() => {
+    setExpandedSchool(expandedSchool === school.name ? null : school.name)
+  }, [school.name, expandedSchool, setExpandedSchool])
+
+  return (
+    <Card
+      className={cn(
+        "overflow-hidden transition-all duration-200",
+        school.completed ? "bg-gray-100 border-gray-200" : "bg-white",
+      )}
+    >
+      <CardHeader className="p-4 pb-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center text-sm font-bold">
+              {index + 1}
+            </div>
+            <div>
+              <h3 className="font-semibold text-lg">{school.name}</h3>
+              <p className="text-sm text-gray-600">{school.address}</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button
+              size="sm"
+              variant={school.completed ? "secondary" : "outline"}
+              onClick={handleToggle}
+            >
+              <CheckCircle className="h-4 w-4 mr-1" />
+              {school.completed ? "Completado" : "Marcar"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={handleExpand}>
+              {expandedSchool === school.name ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {materials.slice(0, 3).map((material) => (
+            <Badge key={material} className="bg-blue-100 text-blue-800 hover:bg-blue-200 text-sm">
+              {material}
+            </Badge>
+          ))}
+          {materials.length > 3 && (
+            <Badge variant="outline" className="text-sm">
+              +{materials.length - 3} más
+            </Badge>
+          )}
+        </div>
+        {school.monitor && (
+          <div className="mt-2 flex items-center text-sm text-gray-600">
+            <Users className="h-4 w-4 mr-1" />
+            Monitor: {school.monitor}
+          </div>
+        )}
+        {school.totalStudents && (
+          <div className="mt-1 flex items-center text-sm text-gray-600">
+            <Users className="h-4 w-4 mr-1" />
+            Alumnos: {school.totalStudents}
+          </div>
+        )}
+        {school.price && (
+          <div className="mt-1 flex items-center text-sm text-green-600">
+            <Euro className="h-4 w-4 mr-1" />
+            Precio: {school.price}€
+          </div>
+        )}
+      </CardHeader>
+
+      {expandedSchool === school.name && (
+        <CardContent className="pt-0">
+          <div className="space-y-3 mt-2">
+            <div>
+              <h4 className="font-medium mb-2">Días con actividades:</h4>
+              <div className="flex flex-wrap gap-1 mb-2">
+                {school.daysWithActivities.map((day) => (
+                  <Badge key={day} variant="outline" className="text-xs">
+                    {day}
+                  </Badge>
+                ))}
+              </div>
+              <p className="text-sm text-gray-600">
+                <span className="font-medium">Último día:</span> {school.lastActivityDay}
+              </p>
+            </div>
+
+            <div>
+              <h4 className="font-medium mb-2">Actividades:</h4>
+              <div className="flex flex-wrap gap-2">
+                {school.activities.map((activity) => (
+                  <Badge key={activity} variant="secondary" className="text-sm font-mono">
+                    {activity}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="font-medium mb-2">Materiales a recoger:</h4>
+              <div className="flex flex-wrap gap-2">
+                {materials.map((material) => (
+                  <Badge
+                    key={material}
+                    className="bg-blue-100 text-blue-800 hover:bg-blue-200 text-sm"
+                  >
+                    {material}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  )
+})
+
+SchoolCard.displayName = 'SchoolCard'
+
+// Custom hook para búsqueda con debounce
+function useDebounced<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
 }
 
 // Mapeo de códigos de actividades SOLO a materiales
@@ -477,7 +636,16 @@ function getCoordinates(schoolName: string) {
   }
 }
 
+// Cache para memoización de materiales
+const materialsCache = new Map<string, string[]>()
+
 function getMaterialsForActivities(activities: string[]): string[] {
+  const cacheKey = activities.sort().join(',')
+  
+  if (materialsCache.has(cacheKey)) {
+    return materialsCache.get(cacheKey)!
+  }
+  
   const materials = new Set<string>()
 
   activities.forEach((activity) => {
@@ -491,11 +659,24 @@ function getMaterialsForActivities(activities: string[]): string[] {
     }
   })
 
-  return Array.from(materials)
+  const result = Array.from(materials)
+  materialsCache.set(cacheKey, result)
+  return result
 }
 
+// Cache para nombres de actividades
+const activityNamesCache = new Map<string, string[]>()
+
 function getActivityNames(activities: string[]): string[] {
-  return activities
+  const cacheKey = activities.sort().join(',')
+  
+  if (activityNamesCache.has(cacheKey)) {
+    return activityNamesCache.get(cacheKey)!
+  }
+  
+  const result = [...activities]
+  activityNamesCache.set(cacheKey, result)
+  return result
 }
 
 function getCollectionDay(lastActivityDay: string): "jueves" | "viernes" | null {
@@ -1003,6 +1184,9 @@ function DeliveryModule({
   const [holidays, setHolidays] = useState<Holiday[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [minStudents, setMinStudents] = useState<number>(0)
+  
+  // Debounced search term para optimizar rendimiento
+  const debouncedSearchTerm = useDebounced(searchTerm, 300)
 
 
   
@@ -1010,22 +1194,28 @@ function DeliveryModule({
     return generateDeliveryPlan(deliverySchools, selectedWeek, deliveryType, holidays)
   }, [deliverySchools, selectedWeek, deliveryType, holidays])
 
+  // Optimized filteredPlans con debounced search y memoización mejorada
   const filteredPlans = useMemo(() => {
-    return deliveryPlans.filter(
-      (plan) => {
-        // Filtro por búsqueda de texto
-        const matchesSearch = plan.school.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          plan.activities.some((activity) => activity.activity.toLowerCase().includes(searchTerm.toLowerCase()))
-        
-        // Filtro por número mínimo de alumnos
-        const hasMinStudents = plan.activities.some((activity) => 
-          (activity.totalStudents || 0) >= minStudents
-        )
-        
-        return matchesSearch && hasMinStudents
-      }
-    )
-  }, [deliveryPlans, searchTerm, minStudents])
+    if (!deliveryPlans.length) return []
+    
+    const lowerSearchTerm = debouncedSearchTerm.toLowerCase()
+    
+    return deliveryPlans.filter((plan) => {
+      // Early return si no hay criterios de filtro
+      if (!lowerSearchTerm && minStudents === 0) return true
+      
+      // Filtro por búsqueda de texto (optimizado)
+      const matchesSearch = !lowerSearchTerm || 
+        plan.school.name.toLowerCase().includes(lowerSearchTerm) ||
+        plan.activities.some((activity) => activity.activity.toLowerCase().includes(lowerSearchTerm))
+      
+      // Filtro por número mínimo de alumnos (optimizado)
+      const hasMinStudents = minStudents === 0 || 
+        plan.activities.some((activity) => (activity.totalStudents || 0) >= minStudents)
+      
+      return matchesSearch && hasMinStudents
+    })
+  }, [deliveryPlans, debouncedSearchTerm, minStudents])
 
   const plansByDay = useMemo(() => {
     const grouped: { [key: string]: DeliveryPlan[] } = {}
@@ -1889,6 +2079,9 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("recogidas")
   const [activeDay, setActiveDay] = useState<"jueves" | "viernes">("jueves")
   const [searchTerm, setSearchTerm] = useState("")
+  
+  // Debounced search term para optimizar rendimiento en recogidas
+  const debouncedPickupSearchTerm = useDebounced(searchTerm, 300)
   const [expandedSchool, setExpandedSchool] = useState<string | null>(null)
   const [schoolsDatabase, setSchoolsDatabase] = useState<School[]>([])
   const [deliverySchools, setDeliverySchools] = useState<DeliverySchool[]>([])
@@ -1956,34 +2149,45 @@ export default function Home() {
   }, [schoolsDatabase])
 
   // Filtrar centros por término de búsqueda (para recogidas)
+  // Optimized filteredSchools con debounced search
   const filteredSchools = useMemo(() => {
     const schools = schoolsByDay[activeDay]
-    return schools.filter(
-      (school) =>
-        school.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    if (!schools?.length) return []
+    
+    const lowerSearchTerm = debouncedPickupSearchTerm.toLowerCase()
+    
+    // Si no hay búsqueda, retornar todos
+    if (!lowerSearchTerm) return schools
+    
+    return schools.filter((school) => {
+      // Cache de valores calculados para evitar recálculos
+      const schoolNameLower = school.name.toLowerCase()
+      const monitorLower = school.monitor?.toLowerCase() || ""
+      
+      return schoolNameLower.includes(lowerSearchTerm) ||
         getActivityNames(school.activities).some((activity) =>
-          activity.toLowerCase().includes(searchTerm.toLowerCase()),
+          activity.toLowerCase().includes(lowerSearchTerm)
         ) ||
         getMaterialsForActivities(school.activities).some((material) =>
-          material.toLowerCase().includes(searchTerm.toLowerCase()),
+          material.toLowerCase().includes(lowerSearchTerm)
         ) ||
-        (school.monitor && school.monitor.toLowerCase().includes(searchTerm.toLowerCase())),
-    )
-  }, [activeDay, searchTerm, schoolsByDay])
+        monitorLower.includes(lowerSearchTerm)
+    })
+  }, [activeDay, debouncedPickupSearchTerm, schoolsByDay])
 
-  // Marcar centro como completado
-  const toggleCompleted = (schoolName: string) => {
+  // Marcar centro como completado (memoizado)
+  const toggleCompleted = useCallback((schoolName: string) => {
     const school = schoolsDatabase.find((s) => s.name === schoolName)
     if (school) {
       school.completed = !school.completed
       setActiveDay((prev) => prev)
     }
-  }
+  }, [schoolsDatabase])
 
-  // Expandir/colapsar detalles del centro
-  const toggleExpanded = (schoolName: string) => {
+  // Expandir/colapsar detalles del centro (memoizado)
+  const toggleExpanded = useCallback((schoolName: string) => {
     setExpandedSchool(expandedSchool === schoolName ? null : schoolName)
-  }
+  }, [expandedSchool])
 
   // Función para abrir el editor de rutas con datos de recogidas
   const openPickupRouteEditor = () => {
@@ -2182,132 +2386,17 @@ export default function Home() {
                     </Card>
                   ) : (
                     <div className="space-y-4 max-h-[800px] overflow-y-auto">
-                      {filteredSchools.map((school, index) => {
-                        const materials = getMaterialsForActivities(school.activities)
-
-                        return (
-                          <Card
-                            key={school.name}
-                            className={cn(
-                              "overflow-hidden transition-all duration-200",
-                              school.completed ? "bg-gray-100 border-gray-200" : "bg-white",
-                            )}
-                          >
-                            <CardHeader className="p-4 pb-2">
-                              <div className="flex justify-between items-start">
-                                <div className="flex items-center">
-                                  <div className="bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm">
-                                    {index + 1}
-                                  </div>
-                                  <div>
-                                    <CardTitle
-                                      className={cn("text-lg", school.completed ? "line-through text-gray-500" : "")}
-                                    >
-                                      {school.name}
-                                    </CardTitle>
-                                    <div className="flex items-center text-sm text-gray-500 mt-1">
-                                      <Clock className="h-4 w-4 mr-1" />
-                                      Último día: {school.lastActivityDay}
-                                      {school.monitor && (
-                                        <>
-                                          <span className="mx-2">•</span>
-                                          <span>👨‍🏫 {school.monitor}</span>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center">
-                                  <Button
-                                    variant={school.completed ? "outline" : "default"}
-                                    size="sm"
-                                    className="mr-2"
-                                    onClick={() => toggleCompleted(school.name)}
-                                  >
-                                    <CheckCircle
-                                      className={cn("h-4 w-4 mr-1", school.completed ? "text-green-500" : "text-white")}
-                                    />
-                                    {school.completed ? "✓" : "Marcar"}
-                                  </Button>
-
-                                  <Button variant="ghost" size="sm" onClick={() => toggleExpanded(school.name)}>
-                                    {expandedSchool === school.name ? (
-                                      <ChevronUp className="h-4 w-4" />
-                                    ) : (
-                                      <ChevronDown className="h-4 w-4" />
-                                    )}
-                                  </Button>
-                                </div>
-                              </div>
-                            </CardHeader>
-
-                            {expandedSchool === school.name && (
-                              <CardContent className="p-4 pt-2">
-                                <div className="text-sm mb-3">
-                                  <div className="flex items-start mb-2">
-                                    <MapPin className="h-4 w-4 mr-2 mt-0.5 text-gray-500" />
-                                    <span>{school.address}</span>
-                                  </div>
-                                </div>
-
-                                {school.totalStudents && school.totalStudents > 0 && (
-                                  <div className="mb-3">
-                                    <div className="flex items-center text-sm">
-                                      <Users className="h-4 w-4 mr-2 text-gray-500" />
-                                      <span>{school.totalStudents} alumnos</span>
-                                      {school.price && school.price > 0 && (
-                                        <>
-                                          <span className="mx-2">•</span>
-                                          <Euro className="h-4 w-4 mr-2 text-gray-500" />
-                                          <span>{school.price}€</span>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                <div className="mb-3">
-                                  <h4 className="font-medium mb-2">Días con actividades:</h4>
-                                  <div className="flex flex-wrap gap-1 mb-2">
-                                    {school.daysWithActivities.map((day) => (
-                                      <Badge key={day} variant="outline" className="text-xs">
-                                        {day}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="mb-3">
-                                  <h4 className="font-medium mb-2">Actividades:</h4>
-                                  <div className="flex flex-wrap gap-2">
-                                    {school.activities.map((activity) => (
-                                      <Badge key={activity} variant="secondary" className="text-sm font-mono">
-                                        {activity}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <h4 className="font-medium mb-2">Materiales a recoger:</h4>
-                                  <div className="flex flex-wrap gap-2">
-                                    {materials.map((material) => (
-                                      <Badge
-                                        key={material}
-                                        className="bg-blue-100 text-blue-800 hover:bg-blue-200 text-sm"
-                                      >
-                                        <Package className="h-3 w-3 mr-1" />
-                                        {material}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                              </CardContent>
-                            )}
-                          </Card>
-                        )
-                      })}
+                      {filteredSchools.map((school, index) => (
+                        <SchoolCard
+                          key={school.name}
+                          school={school}
+                          index={index}
+                          materials={getMaterialsForActivities(school.activities)}
+                          expandedSchool={expandedSchool}
+                          setExpandedSchool={toggleExpanded}
+                          toggleCompleted={toggleCompleted}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>

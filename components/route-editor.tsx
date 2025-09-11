@@ -286,8 +286,8 @@ const exportToGoogleMapsAlternative = (items: RouteItem[]) => {
 const exportToGoogleMapsSimple = (items: RouteItem[]) => {
   // Crear preferencias por defecto para la compatibilidad
   const defaultPreferences: RoutePreferences = {
-    startLocation: "Barcelona, España",
-    endLocation: "Barcelona, España", 
+    startLocation: "Eixos Creativa, Barcelona",
+    endLocation: "Eixos Creativa, Barcelona", 
     preferredStartTime: "09:00",
     timePerStop: 20,
     avoidTolls: false,
@@ -455,8 +455,8 @@ export default function RouteEditor({
   onClose: () => void
 }) {
   const [routePreferences, setRoutePreferences] = useState<RoutePreferences>({
-    startLocation: "Oficina Central, Barcelona",
-    endLocation: "Oficina Central, Barcelona",
+    startLocation: "Eixos Creativa, Barcelona",
+    endLocation: "Eixos Creativa, Barcelona",
     preferredStartTime: "09:00",
     timePerStop: 20,
     avoidTolls: false,

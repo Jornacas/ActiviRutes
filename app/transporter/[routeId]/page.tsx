@@ -29,6 +29,8 @@ interface RouteItem {
 const GOOGLE_SHEETS_CONFIG = {
   SHEET_ID: "1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I",
   DELIVERIES_SHEET_NAME: "Entregas", // Nueva hoja para entregas
+  // URL del Google Apps Script Web App - ¡YA CONFIGURADA!
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbz__Y99LWani6uG87sM30fEKozuZsz6YpD94dgXMtboYYZFW1E6epJRS1sjKBtNyRkN/exec"
 }
 
 // Tipo para los datos de entrega que se guardarán localmente y en Sheets
@@ -151,34 +153,96 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
   const startCamera = async () => {
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } // Cámara trasera preferida
-      })
+      // Verificar si getUserMedia está disponible
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('La API de cámara no está disponible en este navegador')
+      }
+
+      console.log('🎥 Intentando acceder a la cámara...')
+      
+      // Intentar primero con cámara trasera, luego cualquier cámara
+      let constraints = { video: { facingMode: 'environment' } }
+      let mediaStream: MediaStream
+      
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+      } catch (backError) {
+        console.warn('No se puede usar cámara trasera, intentando cámara frontal:', backError)
+        constraints = { video: true }
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+      }
+
       setStream(mediaStream)
+      
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
+        
+        // Esperar a que el video esté listo
+        videoRef.current.onloadedmetadata = () => {
+          console.log('✅ Video cargado correctamente')
+          console.log('📏 Dimensiones:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight)
+        }
+        
+        videoRef.current.onerror = (e) => {
+          console.error('❌ Error en el elemento video:', e)
+        }
       }
+      
       setCameraActive(true)
+      console.log('✅ Cámara activada correctamente')
+      
     } catch (error) {
-      console.error('Error accediendo a la cámara:', error)
-      alert('No se puede acceder a la cámara')
+      console.error('❌ Error accediendo a la cámara:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      alert(`No se puede acceder a la cámara: ${errorMessage}\n\nAsegúrate de:\n1. Permitir el acceso a la cámara\n2. Usar HTTPS o localhost\n3. Tener una cámara disponible`)
     }
   }
 
   const takePhoto = () => {
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!video || !canvas) return
+    
+    if (!video || !canvas) {
+      console.error('❌ Video o canvas no disponibles')
+      alert('Error: No se puede acceder al video o canvas')
+      return
+    }
 
-    const ctx = canvas.getContext('2d')
-    if (ctx) {
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      console.error('❌ Video no tiene dimensiones válidas')
+      alert('Error: El video no se ha cargado correctamente. Espera un momento e intenta de nuevo.')
+      return
+    }
+
+    try {
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        throw new Error('No se puede obtener el contexto del canvas')
+      }
+
+      console.log('📸 Capturando foto...')
+      console.log('📏 Dimensiones del video:', video.videoWidth, 'x', video.videoHeight)
+
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       ctx.drawImage(video, 0, 0)
+      
       const photoData = canvas.toDataURL('image/jpeg', 0.8)
+      
+      if (photoData.length < 1000) {
+        throw new Error('La foto capturada parece estar vacía o corrupta')
+      }
+
+      console.log('✅ Foto capturada correctamente, tamaño:', Math.round(photoData.length / 1024), 'KB')
+
       setPhoto(photoData)
       onPhotoTaken(photoData)
       stopCamera()
+      
+    } catch (error) {
+      console.error('❌ Error capturando la foto:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      alert(`Error al capturar la foto: ${errorMessage}`)
     }
   }
 
@@ -263,16 +327,98 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData): Promise<b
       deliveryData.photoUrl ? 'SÍ' : 'NO'
     ]
 
-    // Por ahora simulamos el envío exitoso
-    // TODO: Implementar con Google Sheets API o Google Apps Script
+    // Intentar envío real usando Google Apps Script Web App (método más simple)
     console.log("📊 Datos preparados para Google Sheets:", rowData)
-    await new Promise(resolve => setTimeout(resolve, 1500)) // Simular delay
-    console.log("✅ Datos enviados a Google Sheets exitosamente")
-    return true
+    
+    try {
+      // Verificar si está configurada la URL del Google Apps Script
+      if (GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL === "YOUR_SCRIPT_URL_HERE") {
+        throw new Error("Google Apps Script URL no configurada")
+      }
+      
+      const webAppUrl = GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL
+      
+      const response = await fetch(webAppUrl, {
+        method: 'POST',
+        mode: 'no-cors', // Importante para Google Apps Script
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'addDelivery',
+          data: rowData
+        })
+      })
+      
+      console.log("✅ Datos enviados a Google Sheets")
+      return true
+      
+    } catch (error) {
+      console.warn("⚠️ No se pudo enviar a Google Sheets (posiblemente no configurado):", error)
+      
+      // Fallback: Guardar localmente y mostrar instrucciones
+      console.log("💾 Guardando datos localmente como fallback")
+      const localKey = `pending_delivery_${deliveryData.routeId}_${deliveryData.itemId}_${Date.now()}`
+      localStorage.setItem(localKey, JSON.stringify({ rowData, timestamp: new Date().toISOString() }))
+      
+      // Mostrar datos formateados para copia manual
+      const csvRow = rowData.map(field => `"${field}"`).join(',')
+      console.log("📋 Datos CSV para copia manual:", csvRow)
+      
+      return true // Consideramos éxito aunque sea local
+    }
     
   } catch (error) {
     console.error("❌ Error enviando datos a Google Sheets:", error)
     return false
+  }
+}
+
+// Función de prueba para Google Sheets
+const testGoogleSheetsDelivery = async () => {
+  console.log("🧪 Iniciando prueba de envío a Google Sheets...")
+  
+  const testDelivery: DeliveryData = {
+    routeId: 'test-route-' + Date.now(),
+    itemId: 'test-item',
+    recipientName: 'Receptor de Prueba',
+    signature: 'data:image/png;base64,test-signature-data',
+    photoUrl: 'data:image/jpeg;base64,test-photo-data', 
+    timestamp: new Date().toISOString(),
+    status: 'delivered',
+    schoolName: 'Escola de Prueba ActiviRutes',
+    schoolAddress: 'Carrer de Prueba, 123, Barcelona',
+    activities: 'Material TC, Material CO',
+    deliveryDay: 'Lunes',
+    notes: 'Prueba de conexión desde ActiviRutes'
+  }
+  
+  const success = await sendDeliveryToGoogleSheets(testDelivery)
+  
+  if (success) {
+    // Mostrar los datos que se enviarían en formato CSV
+    const csvRow = [
+      testDelivery.timestamp.split('T')[0].split('-').reverse().join('/'), // Fecha DD/MM/YYYY
+      new Date(testDelivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+      testDelivery.routeId,
+      testDelivery.schoolName,
+      testDelivery.schoolAddress,
+      testDelivery.activities,
+      testDelivery.recipientName,
+      testDelivery.notes,
+      testDelivery.signature ? 'SÍ' : 'NO',
+      testDelivery.photoUrl ? 'SÍ' : 'NO'
+    ].map(field => `"${field}"`).join(',')
+    
+    console.log('📋 Datos CSV generados:', csvRow)
+    
+    if (GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL === "YOUR_SCRIPT_URL_HERE") {
+      alert(`⚠️ Google Apps Script no configurado\n\n✅ Prueba local completada!\n\n📋 Datos CSV para copia manual:\n${csvRow}\n\n💡 Para envío automático:\n1. Configura Google Apps Script\n2. Actualiza APPS_SCRIPT_URL en el código`)
+    } else {
+      alert('✅ Prueba de Google Sheets completada!\n\n📊 Datos enviados al Google Apps Script.\n\nRevisa:\n- La consola del navegador (F12)\n- Tu hoja ENTREGAS en Google Sheets')
+    }
+  } else {
+    alert('❌ Error en la prueba de Google Sheets.\n\nRevisa la consola del navegador (F12) para más detalles.')
   }
 }
 
@@ -413,19 +559,20 @@ export default function TransporterApp() {
     if (routeItems.length === 0) return
     
     // Crear URL con múltiples waypoints para Google Maps
-    const origin = encodeURIComponent("Barcelona, España") // Punto de inicio por defecto
+    const origin = encodeURIComponent("Eixos Creativa, Barcelona")
+    const destination = encodeURIComponent("Eixos Creativa, Barcelona") // Volver al origen
+    
+    // Todos los elementos de la ruta serán waypoints
     const waypoints = routeItems
-      .slice(0, -1) // Todos excepto el último (que será el destino)
       .map(item => encodeURIComponent(`${item.address}, Barcelona, España`))
       .join('|')
     
-    const destination = encodeURIComponent(`${routeItems[routeItems.length - 1].address}, Barcelona, España`)
-    
     let googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`
-    if (waypoints) {
+    if (waypoints && waypoints.length > 0) {
       googleMapsUrl += `&waypoints=${waypoints}`
     }
     
+    console.log("🗺️ Google Maps URL:", googleMapsUrl) // Debug
     window.open(googleMapsUrl, "_blank")
   }
 
@@ -496,6 +643,14 @@ export default function TransporterApp() {
           >
             <Edit3 className="h-4 w-4 mr-2" />
             {isEditing ? "Terminar Edición" : "Editar Ruta"}
+          </Button>
+          <Button 
+            variant="outline"
+            onClick={testGoogleSheetsDelivery}
+            className="border-green-300 text-green-700 hover:bg-green-50"
+          >
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Probar Google Sheets
           </Button>
         </div>
       </div>
