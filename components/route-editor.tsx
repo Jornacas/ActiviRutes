@@ -933,6 +933,11 @@ export default function RouteEditor({
     }
 
     const currentRouteId = `${config.type}-${config.selectedDay || 'general'}-${Date.now()}`;
+    console.log('🔧 === GENERANDO LINK DEL TRANSPORTISTA ===')
+    console.log('📋 Config:', config)
+    console.log('🆔 RouteID generado:', currentRouteId)
+    console.log('📊 Items en la ruta:', currentItems.length)
+    
     const routeData = {
       items: currentItems,
       metadata: {
@@ -945,18 +950,26 @@ export default function RouteEditor({
     
     // Save the current route items to localStorage for the transporter app to load
     localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify(routeData));
+    console.log('💾 Ruta guardada en localStorage con key:', `savedRoute_${currentRouteId}`)
     
     // Generar link accesible desde cualquier lugar
     const hostname = window.location.hostname;
+    const finalLink = `${window.location.origin}/transporter/${currentRouteId}`;
+    
+    console.log('🌐 Hostname:', hostname)
+    console.log('🔗 Link final generado:', finalLink)
+    console.log('🌐 Window origin:', window.location.origin)
+    
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       // En desarrollo - necesita túnel público
-      const transporterLink = `${window.location.origin}/transporter/${currentRouteId}`;
-      setTransporterLink(transporterLink);
+      setTransporterLink(finalLink);
       setLocalIP("desarrollo-local"); // Flag para mostrar instrucciones especiales
+      console.log('🏠 Modo desarrollo - link establecido:', finalLink)
     } else {
       // En producción - usar URL normal (ya accesible públicamente)
-      setTransporterLink(`${window.location.origin}/transporter/${currentRouteId}`);
+      setTransporterLink(finalLink);
       setLocalIP("produccion"); // Flag para mostrar que está listo
+      console.log('🌍 Modo producción - link establecido:', finalLink)
     }
     
     setShowTransporterModal(true);
@@ -986,7 +999,12 @@ export default function RouteEditor({
 
   const generateQRCode = (url: string) => {
     // Generar QR code usando una API pública
+    console.log('📱 === GENERANDO QR CODE ===')
+    console.log('🔗 URL para QR:', url)
+    
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+    console.log('📱 QR API URL:', qrUrl)
+    
     return qrUrl;
   };
 
