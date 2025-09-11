@@ -1187,7 +1187,7 @@ function DeliveryModule({
   onOpenRouteEditor,
 }: {
   deliverySchools: DeliverySchool[]
-  onOpenRouteEditor: (allPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string) => void
+  onOpenRouteEditor: (allPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter?: number) => void
 }) {
   const [selectedWeek, setSelectedWeek] = useState<Date>(new Date())
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("trimestral")
@@ -1395,7 +1395,8 @@ function DeliveryModule({
                       filteredPlans, 
                       dayName, 
                       deliveryType, 
-                      format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+                      format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+                      minStudents
                     )} // Pasar todos los planes para drag & drop
                     className="bg-blue-600 hover:bg-blue-700"
                   >
@@ -2233,16 +2234,16 @@ export default function Home() {
   const [deliveryReorganizations, setDeliveryReorganizations] = useState<{ [key: string]: any }>({})
   
   // Función para abrir el editor de rutas con datos de entregas - Vista completa semanal
-  const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string) => {
+  const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter: number = 0) => {
     // Recibimos todos los planes de la semana para permitir drag & drop entre días
     
     const routeItems = allWeekPlans.map((plan) => {
       // RESPETAR EL FILTRO DE ESTUDIANTES MÍNIMOS - Solo incluir actividades que cumplen el filtro
-      const validActivities = plan.activities.filter((activity) => (activity.totalStudents || 0) >= minStudents)
+      const validActivities = plan.activities.filter((activity) => (activity.totalStudents || 0) >= minStudentsFilter)
       
       // Log para debugging
       if (validActivities.length !== plan.activities.length) {
-        console.log(`🔍 Filtro de estudiantes aplicado en ${plan.school.name}: ${plan.activities.length} → ${validActivities.length} actividades (min: ${minStudents})`)
+        console.log(`🔍 Filtro de estudiantes aplicado en ${plan.school.name}: ${plan.activities.length} → ${validActivities.length} actividades (min: ${minStudentsFilter})`)
       }
       
       // Si no hay actividades válidas después del filtro, usar todas (fallback)
