@@ -143,6 +143,32 @@ Key interfaces are defined inline in `app/page.tsx`:
 - `Holiday` - Holiday management
 - `RouteItem` - Route editor items
 
+## Recent Development History
+
+### September 2025 - Transporter Module Fixes
+**Major issues resolved in commits 577f27e and earlier:**
+
+1. **Cross-Device Route Sharing**: Implemented QR code system with intelligent fallback for sharing routes between devices
+2. **School Name Consistency**: Fixed automatic "Escola" prefixing in transporter module (`app/transporter/[routeId]/page.tsx`)
+3. **Complete Route Data Transfer**: Resolved issue where only partial route data (9/16 schools) was loading in transporter
+4. **Google Maps Integration**: Enhanced waypoint generation to handle 25+ stops with proper school naming
+5. **Camera Functionality**: Added comprehensive debugging for camera black screen issues
+6. **Performance Optimizations**: Implemented memoization and caching for slow dropdowns in delivery sections
+7. **Student Filtering**: Fixed minStudents parameter passing throughout the application flow
+
+### Key Technical Improvements
+- **Route Editor** (`components/route-editor.tsx`): Dual link system for QR codes and copying
+- **Main App** (`app/page.tsx`): Performance optimizations with pre-computed school data
+- **Transporter** (`app/transporter/[routeId]/page.tsx`): Enhanced data loading and Google Maps debugging
+- **Google Apps Script**: Updated deployment for delivery data collection
+
+### Known Working Features
+- Route generation with 16-18 schools for complex Monday routes
+- Cross-device route sharing via QR codes and URLs
+- Google Maps export with complete waypoint coverage
+- Camera integration with enhanced error logging
+- Student count filtering with persistence
+
 ## Testing & Quality
 
 - No test framework currently configured
