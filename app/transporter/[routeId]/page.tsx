@@ -651,8 +651,10 @@ export default function TransporterApp() {
     setLoading(true)
     setError(null)
     try {
-      // Aquí deberías cargar los RouteItems reales asociados a este routeId
-      // Por ahora, usamos datos de ejemplo o los cargados del localStorage si existen
+      console.log('📱 === CARGANDO RUTA DEL TRANSPORTISTA ===')
+      console.log('🆔 Route ID:', routeId)
+      
+      // Intentar cargar desde localStorage primero (para mismo dispositivo)
       const savedRoute = localStorage.getItem(`savedRoute_${routeId}`)
       if (savedRoute) {
         const route = JSON.parse(savedRoute)
@@ -662,18 +664,57 @@ export default function TransporterApp() {
         if (savedDeliveryStatus) {
           setDeliveryStatus(JSON.parse(savedDeliveryStatus))
         }
-        console.log("Ruta cargada desde localStorage:", routeId)
-      } else {
-        // Datos de ejemplo si no hay ruta guardada (para pruebas)
-        setRouteItems([
-          { id: "1", name: "Escola Primaria", address: "Carrer Ficticio, 10, Barcelona", activities: ["Libros", "Material"], startTime: "09:00", type: "delivery" },
-          { id: "2", name: "Institut Secundari", address: "Avinguda Imaginaria, 25, Barcelona", activities: ["Tablets"], startTime: "10:30", type: "delivery" },
-          { id: "3", name: "Guarderia Infantil", address: "Plaça de la Fantasia, 5, Barcelona", activities: ["Juguetes"], startTime: "12:00", type: "delivery" },
-        ])
-        console.log("Cargando ruta de ejemplo (no encontrada en localStorage):", routeId)
+        console.log("✅ Ruta cargada desde localStorage:", routeId)
+        return
       }
+      
+      // Si no está en localStorage, intentar cargar desde URL parameters (para compartir entre dispositivos)
+      const urlParams = new URLSearchParams(window.location.search)
+      const encodedData = urlParams.get('data')
+      
+      if (encodedData) {
+        try {
+          console.log('📦 Intentando decodificar datos desde URL...')
+          const decodedData = JSON.parse(atob(encodedData))
+          console.log('✅ Datos decodificados:', decodedData)
+          
+          // Convertir los datos resumidos a formato RouteItem
+          const routeItemsFromUrl: RouteItem[] = decodedData.items.map((item: any, index: number) => ({
+            id: item.id || `url-item-${index}`,
+            name: item.name || `Centro ${index + 1}`,
+            address: item.address || 'Dirección no disponible',
+            activities: item.activities || [],
+            type: decodedData.type as "delivery" | "pickup" || "delivery",
+            startTime: `${9 + index}:00`, // Horas estimadas
+            totalStudents: 0,
+            price: 0
+          }))
+          
+          setRouteItems(routeItemsFromUrl)
+          console.log(`✅ Ruta cargada desde URL con ${routeItemsFromUrl.length} elementos`)
+          return
+          
+        } catch (decodeError) {
+          console.error('❌ Error decodificando datos de URL:', decodeError)
+        }
+      }
+      
+      // Fallback: datos de ejemplo mínimos (solo si todo falla)
+      console.log('⚠️ No se encontraron datos de ruta. Usando ejemplo mínimo.')
+      setRouteItems([
+        { 
+          id: "example-1", 
+          name: "Ruta no encontrada", 
+          address: "Los datos de esta ruta no están disponibles en este dispositivo", 
+          activities: ["Contactar con administrador"], 
+          startTime: "09:00", 
+          type: "delivery" 
+        }
+      ])
+      setError("⚠️ Ruta no encontrada. Es posible que el link haya expirado o los datos no estén disponibles en este dispositivo.")
+      
     } catch (e: any) {
-      console.error("Error cargando ruta:", e)
+      console.error("❌ Error cargando ruta:", e)
       setError("Error cargando la ruta: " + e.message)
     } finally {
       setLoading(false)

@@ -952,13 +952,31 @@ export default function RouteEditor({
     localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify(routeData));
     console.log('💾 Ruta guardada en localStorage con key:', `savedRoute_${currentRouteId}`)
     
+    // Crear datos básicos para compartir vía URL (para funcionar entre dispositivos)
+    const routeSummary = {
+      id: currentRouteId,
+      type: config.type,
+      day: config.selectedDay,
+      total: currentItems.length,
+      items: currentItems.slice(0, 20).map(item => ({ // Límite de 20 items para evitar URL muy larga
+        id: item.id,
+        name: item.name,
+        address: item.address,
+        activities: item.activities
+      }))
+    };
+    
+    // Codificar datos como base64 para incluir en URL
+    const encodedData = btoa(JSON.stringify(routeSummary));
+    
     // Generar link accesible desde cualquier lugar
     const hostname = window.location.hostname;
-    const finalLink = `${window.location.origin}/transporter/${currentRouteId}`;
+    const finalLink = `${window.location.origin}/transporter/${currentRouteId}?data=${encodedData}`;
     
     console.log('🌐 Hostname:', hostname)
     console.log('🔗 Link final generado:', finalLink)
     console.log('🌐 Window origin:', window.location.origin)
+    console.log('📦 Datos codificados incluidos en URL para compatibilidad móvil')
     
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       // En desarrollo - necesita túnel público
