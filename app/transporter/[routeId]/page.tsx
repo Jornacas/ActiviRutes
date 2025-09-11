@@ -507,14 +507,38 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
               controls={false}
               style={{ 
                 transform: 'scaleX(-1)', // Efecto espejo para mayor naturalidad
-                objectFit: 'cover' 
+                objectFit: 'cover',
+                backgroundColor: '#000' // Fondo negro explícito
               }}
               className="w-full h-64 bg-gray-900 rounded-lg border-2 border-gray-300"
-              onLoadStart={() => console.log('📹 Video iniciando carga...')}
-              onLoadedMetadata={() => console.log('📹 Metadata cargada')}
-              onCanPlay={() => console.log('📹 Video puede reproducirse')}
-              onPlay={() => console.log('📹 Video reproduciendo')}
+              onLoadStart={() => {
+                console.log('📹 Video iniciando carga...')
+                console.log('📹 Video element:', videoRef.current)
+                console.log('📹 Stream asignado:', stream)
+              }}
+              onLoadedMetadata={() => {
+                console.log('📹 Metadata cargada')
+                if (videoRef.current) {
+                  console.log('📹 Dimensiones:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight)
+                  console.log('📹 Stream tracks:', stream?.getTracks().length)
+                }
+              }}
+              onCanPlay={() => {
+                console.log('📹 Video puede reproducirse')
+                // Forzar play si no está reproduciéndose
+                if (videoRef.current && videoRef.current.paused) {
+                  videoRef.current.play().catch(e => console.log('⚠️ Autoplay falló:', e))
+                }
+              }}
+              onPlay={() => console.log('📹 Video reproduciendo ✅')}
+              onPlaying={() => console.log('📹 Video está activamente reproduciendo ✅')}
               onError={(e) => console.error('📹 Error en video:', e)}
+              onClick={() => {
+                // Click para iniciar si está pausado
+                if (videoRef.current && videoRef.current.paused) {
+                  videoRef.current.play().catch(e => console.log('⚠️ Play manual falló:', e))
+                }
+              }}
             />
             {/* Overlay con información de debug en desarrollo */}
             <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs p-1 rounded">
@@ -719,16 +743,24 @@ export default function TransporterApp() {
           
           // Manejar AMBOS formatos: compacto (s) y completo (items)
           const dataItems = decodedData.s || decodedData.items || []
-          const routeItemsFromUrl: RouteItem[] = dataItems.map((item: any, index: number) => ({
-            id: item.i || item.id || `url-item-${index}`,
-            name: item.n || item.name || `Centro ${index + 1}`,
-            address: item.address || 'Dirección desde ruta compartida',
-            activities: item.a || item.activities || [],
-            type: (decodedData.t === 'd' ? 'delivery' : decodedData.t === 'p' ? 'pickup' : decodedData.type) || "delivery",
-            startTime: item.startTime || `${9 + index}:00`,
-            totalStudents: 0,
-            price: 0
-          }))
+          const routeItemsFromUrl: RouteItem[] = dataItems.map((item: any, index: number) => {
+            const baseName = item.n || item.name || `Centro ${index + 1}`
+            // Añadir "Escola" si no está presente (excepto Academia)
+            const schoolName = baseName === 'Academia' || baseName.includes('Escola') ? 
+              baseName : 
+              `Escola ${baseName}`
+              
+            return {
+              id: item.i || item.id || `url-item-${index}`,
+              name: schoolName,
+              address: item.address || 'Dirección desde ruta compartida',
+              activities: item.a || item.activities || [],
+              type: (decodedData.t === 'd' ? 'delivery' : decodedData.t === 'p' ? 'pickup' : decodedData.type) || "delivery",
+              startTime: item.startTime || `${9 + index}:00`,
+              totalStudents: 0,
+              price: 0
+            }
+          })
           
           // Si es formato compacto, avisar que hay más datos
           if (decodedData.s && decodedData.n > decodedData.s.length) {
@@ -867,11 +899,16 @@ export default function TransporterApp() {
       
       // Usar NOMBRES de escuelas + direcciones para mejor identificación
       const waypoints = routeItems
-        .map(item => {
+        .map((item, index) => {
           const schoolName = item.name.includes('Escola') ? item.name : `Escola ${item.name}`
-          return encodeURIComponent(`${schoolName}, ${item.address}, Barcelona`)
+          const waypoint = `${schoolName}, ${item.address}, Barcelona`
+          console.log(`   📍 Waypoint ${index + 1}: ${waypoint}`)
+          return encodeURIComponent(waypoint)
         })
         .join('|')
+      
+      console.log(`📊 Total waypoints generados: ${routeItems.length}`)
+      console.log(`📏 Longitud de waypoints string: ${waypoints.length} chars`)
       
       let googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`
       if (waypoints && waypoints.length > 0) {

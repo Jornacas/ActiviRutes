@@ -996,9 +996,9 @@ export default function RouteEditor({
     console.log('🌐 Window origin:', window.location.origin)
     console.log('📦 Datos codificados incluidos en URL para compatibilidad móvil')
     
-    // Establecer AMBOS links
+    // Establecer AMBOS links - INTERCAMBIADOS para priorizar datos completos
     setTransporterLink(finalLink); // Link completo para copiar
-    setTransporterQRLink(compactLink); // Link compacto para QR
+    setTransporterQRLink(finalLink); // USAR LINK COMPLETO también para QR (intentar primero)
     
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       // En desarrollo - necesita túnel público
@@ -1719,9 +1719,20 @@ export default function RouteEditor({
                   alt="QR Code para acceso móvil" 
                   className="mx-auto border rounded"
                   onError={(e) => {
-                    console.log('⚠️ QR compacto falló, intentando sin datos');
-                    const basicLink = `${window.location.origin}/transporter/route-${Date.now()}`;
-                    e.currentTarget.src = generateQRCode(basicLink);
+                    console.log('⚠️ QR completo falló, intentando versión compacta...');
+                    // Crear versión ultra compacta como fallback
+                    const compactData = btoa(JSON.stringify({
+                      i: `route-${Date.now()}`,
+                      t: 'd',
+                      n: currentItems.length,
+                      s: currentItems.slice(0, 3).map((item, idx) => ({
+                        i: item.id,
+                        n: item.name.split(' ').slice(0, 2).join(' '),
+                        a: [item.activities[0] || 'Material']
+                      }))
+                    }));
+                    const fallbackLink = `${window.location.origin}/transporter/route-${Date.now()}?data=${compactData}`;
+                    e.currentTarget.src = generateQRCode(fallbackLink);
                     e.currentTarget.nextElementSibling!.style.display = 'block';
                   }}
                 />
