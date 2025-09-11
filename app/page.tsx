@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback, memo } from "react"
+import { useState, useMemo, useEffect, useCallback, memo, useRef } from "react"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -253,6 +253,16 @@ function useDebounced<T>(value: T, delay: number): T {
   }, [value, delay])
 
   return debouncedValue
+}
+
+// Hook para optimizar re-renders costosos
+function useStableCallback<T extends (...args: any[]) => any>(callback: T): T {
+  const callbackRef = useRef<T>(callback)
+  callbackRef.current = callback
+  
+  return useCallback<T>((...args: any[]) => {
+    return callbackRef.current(...args)
+  }, []) as T
 }
 
 // Mapeo de códigos de actividades SOLO a materiales
@@ -2148,32 +2158,41 @@ export default function Home() {
     return { jueves, viernes }
   }, [schoolsDatabase])
 
-  // Filtrar centros por término de búsqueda (para recogidas)
-  // Optimized filteredSchools con debounced search
-  const filteredSchools = useMemo(() => {
+  // Pre-computar datos de las escuelas para optimizar rendimiento
+  const schoolsWithPrecomputedData = useMemo(() => {
     const schools = schoolsByDay[activeDay]
     if (!schools?.length) return []
+    
+    return schools.map(school => ({
+      ...school,
+      materials: getMaterialsForActivities(school.activities),
+      activityNames: getActivityNames(school.activities),
+      schoolNameLower: school.name.toLowerCase(),
+      monitorLower: school.monitor?.toLowerCase() || ""
+    }))
+  }, [activeDay, schoolsByDay])
+
+  // Filtrar centros por término de búsqueda (para recogidas)
+  // Optimized filteredSchools con datos pre-computados
+  const filteredSchools = useMemo(() => {
+    if (!schoolsWithPrecomputedData.length) return []
     
     const lowerSearchTerm = debouncedPickupSearchTerm.toLowerCase()
     
     // Si no hay búsqueda, retornar todos
-    if (!lowerSearchTerm) return schools
+    if (!lowerSearchTerm) return schoolsWithPrecomputedData
     
-    return schools.filter((school) => {
-      // Cache de valores calculados para evitar recálculos
-      const schoolNameLower = school.name.toLowerCase()
-      const monitorLower = school.monitor?.toLowerCase() || ""
-      
-      return schoolNameLower.includes(lowerSearchTerm) ||
-        getActivityNames(school.activities).some((activity) =>
+    return schoolsWithPrecomputedData.filter((school) => {
+      return school.schoolNameLower.includes(lowerSearchTerm) ||
+        school.activityNames.some((activity) =>
           activity.toLowerCase().includes(lowerSearchTerm)
         ) ||
-        getMaterialsForActivities(school.activities).some((material) =>
+        school.materials.some((material) =>
           material.toLowerCase().includes(lowerSearchTerm)
         ) ||
-        monitorLower.includes(lowerSearchTerm)
+        school.monitorLower.includes(lowerSearchTerm)
     })
-  }, [activeDay, debouncedPickupSearchTerm, schoolsByDay])
+  }, [debouncedPickupSearchTerm, schoolsWithPrecomputedData])
 
   // Marcar centro como completado (memoizado)
   const toggleCompleted = useCallback((schoolName: string) => {
@@ -2217,19 +2236,34 @@ export default function Home() {
   const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string) => {
     // Recibimos todos los planes de la semana para permitir drag & drop entre días
     
-    const routeItems = allWeekPlans.map((plan) => ({
-      id: plan.school.name,
-      name: plan.school.name,
-      address: plan.school.address,
-      activities: plan.activities.map((a) => a.activity),
-      day: plan.deliveryDay,
-      turn: plan.activities[0]?.turn,
-      startTime: plan.activities[0]?.startTime,
-      totalStudents: plan.activities.reduce((sum, a) => sum + (a.totalStudents || 0), 0),
-      price: 0,
-      monitor: "",
-      type: "delivery" as const,
-    }))
+    const routeItems = allWeekPlans.map((plan) => {
+      // RESPETAR EL FILTRO DE ESTUDIANTES MÍNIMOS - Solo incluir actividades que cumplen el filtro
+      const validActivities = plan.activities.filter((activity) => (activity.totalStudents || 0) >= minStudents)
+      
+      // Log para debugging
+      if (validActivities.length !== plan.activities.length) {
+        console.log(`🔍 Filtro de estudiantes aplicado en ${plan.school.name}: ${plan.activities.length} → ${validActivities.length} actividades (min: ${minStudents})`)
+      }
+      
+      // Si no hay actividades válidas después del filtro, usar todas (fallback)
+      const activitiesToUse = validActivities.length > 0 ? validActivities : plan.activities
+      
+      return {
+        id: plan.school.name,
+        name: plan.school.name,
+        address: plan.school.address,
+        activities: activitiesToUse.map((a) => a.activity),
+        day: plan.deliveryDay,
+        turn: activitiesToUse[0]?.turn,
+        startTime: activitiesToUse[0]?.startTime,
+        totalStudents: activitiesToUse.reduce((sum, a) => sum + (a.totalStudents || 0), 0),
+        price: 0,
+        monitor: "",
+        type: "delivery" as const,
+        filteredActivities: activitiesToUse, // Información adicional para debugging
+        originalActivities: plan.activities.length, // Para saber si se filtró
+      }
+    })
 
     setRouteConfig({
       title: `Entregas Semana del ${format(new Date(weekStart), "PPP", { locale: es })}`,
@@ -2391,7 +2425,7 @@ export default function Home() {
                           key={school.name}
                           school={school}
                           index={index}
-                          materials={getMaterialsForActivities(school.activities)}
+                          materials={school.materials}
                           expandedSchool={expandedSchool}
                           setExpandedSchool={toggleExpanded}
                           toggleCompleted={toggleCompleted}

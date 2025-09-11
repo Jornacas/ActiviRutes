@@ -162,39 +162,56 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
       console.log('🎥 Intentando acceder a la cámara...')
       
-      // Lista de constraints a probar en orden de preferencia
+      // Lista de constraints específicos para móvil
       const constraintsToTry = [
-        // Cámara trasera con resolución específica
+        // Cámara trasera optimizada para móvil
         { 
           video: { 
-            facingMode: 'environment',
+            facingMode: { exact: 'environment' },
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 30, max: 30 }
+          } 
+        },
+        // Cámara trasera sin frameRate fijo (para dispositivos lentos)
+        { 
+          video: { 
+            facingMode: { exact: 'environment' },
             width: { ideal: 1280 },
             height: { ideal: 720 }
           } 
         },
-        // Cámara trasera básica
+        // Cámara trasera con resolución baja
+        { 
+          video: { 
+            facingMode: { exact: 'environment' },
+            width: 640,
+            height: 480
+          } 
+        },
+        // Cualquier cámara trasera
         { video: { facingMode: 'environment' } },
-        // Cámara frontal con resolución específica
+        // Cámara frontal optimizada
         { 
           video: { 
-            facingMode: 'user',
+            facingMode: { exact: 'user' },
             width: { ideal: 1280 },
             height: { ideal: 720 }
           } 
         },
-        // Cámara frontal básica
+        // Cualquier cámara frontal
         { video: { facingMode: 'user' } },
-        // Cualquier cámara con resolución específica
+        // Cualquier cámara con buena resolución
         { 
           video: { 
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 }
           } 
         },
         // Cualquier cámara disponible
         { video: true },
-        // Fallback básico
-        { video: { width: 640, height: 480 } }
+        // Fallback mínimo
+        { video: { width: 320, height: 240 } }
       ]
 
       let mediaStream: MediaStream | null = null
@@ -678,14 +695,14 @@ export default function TransporterApp() {
           const decodedData = JSON.parse(atob(encodedData))
           console.log('✅ Datos decodificados:', decodedData)
           
-          // Convertir los datos resumidos a formato RouteItem
+          // Convertir los datos COMPLETOS a formato RouteItem
           const routeItemsFromUrl: RouteItem[] = decodedData.items.map((item: any, index: number) => ({
             id: item.id || `url-item-${index}`,
-            name: item.name || `Centro ${index + 1}`,
-            address: item.address || 'Dirección no disponible',
+            name: item.name || `Centro ${index + 1}`, // Nombre completo de escuela
+            address: item.address || 'Dirección no disponible', // Dirección completa
             activities: item.activities || [],
             type: decodedData.type as "delivery" | "pickup" || "delivery",
-            startTime: `${9 + index}:00`, // Horas estimadas
+            startTime: item.startTime || `${9 + index}:00`,
             totalStudents: 0,
             price: 0
           }))

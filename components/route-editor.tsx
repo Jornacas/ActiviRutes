@@ -952,17 +952,18 @@ export default function RouteEditor({
     localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify(routeData));
     console.log('💾 Ruta guardada en localStorage con key:', `savedRoute_${currentRouteId}`)
     
-    // Crear datos básicos para compartir vía URL (para funcionar entre dispositivos)
+    // Crear datos COMPLETOS para compartir vía URL (todas las escuelas del día)
     const routeSummary = {
       id: currentRouteId,
       type: config.type,
       day: config.selectedDay,
       total: currentItems.length,
-      items: currentItems.slice(0, 20).map(item => ({ // Límite de 20 items para evitar URL muy larga
+      items: currentItems.map(item => ({ // TODOS los items de la ruta
         id: item.id,
-        name: item.name,
-        address: item.address,
-        activities: item.activities
+        name: item.name, // Nombre completo de la escuela
+        address: item.address, // Dirección completa
+        activities: item.activities, // Todas las actividades
+        startTime: item.startTime || '09:00'
       }))
     };
     
@@ -1690,20 +1691,26 @@ export default function RouteEditor({
                 </ul>
               </div>
 
-              {/* QR Code para acceso fácil */}
+              {/* QR Code optimizado */}
               <div className="bg-gray-50 p-3 rounded border text-center">
                 <p className="text-sm text-gray-600 mb-2">📱 Código QR para acceso rápido:</p>
+                {/* Intentar mostrar QR con datos completos, si es muy largo fallará gracefully */}
                 <img 
                   src={generateQRCode(transporterLink)} 
                   alt="QR Code para acceso móvil" 
                   className="mx-auto border rounded"
                   onError={(e) => {
+                    console.log('⚠️ URL demasiado larga para QR, mostrando mensaje alternativo');
                     e.currentTarget.style.display = 'none';
                     e.currentTarget.nextElementSibling!.style.display = 'block';
                   }}
                 />
-                <p className="text-xs text-gray-500 mt-2" style={{display: 'none'}}>
-                  QR no disponible - usa los botones de abajo
+                <div className="text-xs text-amber-600 mt-2 p-2 bg-amber-50 rounded" style={{display: 'none'}}>
+                  ⚠️ Ruta con {currentItems.length} escuelas - QR no disponible.<br/>
+                  <strong>Usa "Copiar Link" para compartir por WhatsApp/Email</strong>
+                </div>
+                <p className="text-xs text-blue-600 mt-1">
+                  ✅ Incluye todas las {currentItems.length} escuelas de la ruta
                 </p>
               </div>
 
