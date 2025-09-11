@@ -160,16 +160,62 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
       console.log('🎥 Intentando acceder a la cámara...')
       
-      // Intentar primero con cámara trasera, luego cualquier cámara
-      let constraints = { video: { facingMode: 'environment' } }
-      let mediaStream: MediaStream
-      
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
-      } catch (backError) {
-        console.warn('No se puede usar cámara trasera, intentando cámara frontal:', backError)
-        constraints = { video: true }
-        mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+      // Lista de constraints a probar en orden de preferencia
+      const constraintsToTry = [
+        // Cámara trasera con resolución específica
+        { 
+          video: { 
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
+        },
+        // Cámara trasera básica
+        { video: { facingMode: 'environment' } },
+        // Cámara frontal con resolución específica
+        { 
+          video: { 
+            facingMode: 'user',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
+        },
+        // Cámara frontal básica
+        { video: { facingMode: 'user' } },
+        // Cualquier cámara con resolución específica
+        { 
+          video: { 
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          } 
+        },
+        // Cualquier cámara disponible
+        { video: true },
+        // Fallback básico
+        { video: { width: 640, height: 480 } }
+      ]
+
+      let mediaStream: MediaStream | null = null
+      let lastError: Error | null = null
+
+      // Probar cada constraint hasta encontrar una que funcione
+      for (let i = 0; i < constraintsToTry.length; i++) {
+        const constraints = constraintsToTry[i]
+        console.log(`🔄 Probando constraint ${i + 1}/${constraintsToTry.length}:`, constraints)
+        
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+          console.log(`✅ Constraint ${i + 1} funcionó correctamente`)
+          break
+        } catch (error) {
+          console.warn(`❌ Constraint ${i + 1} falló:`, error)
+          lastError = error instanceof Error ? error : new Error(String(error))
+          continue
+        }
+      }
+
+      if (!mediaStream) {
+        throw lastError || new Error('No se pudo acceder a ninguna cámara')
       }
 
       setStream(mediaStream)
@@ -177,14 +223,37 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream
         
-        // Esperar a que el video esté listo
+        // Configurar eventos del video
         videoRef.current.onloadedmetadata = () => {
-          console.log('✅ Video cargado correctamente')
-          console.log('📏 Dimensiones:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight)
+          console.log('✅ Metadata del video cargada')
+          console.log('📏 Dimensiones del video:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight)
+          
+          // Asegurarse de que el video esté reproduciendo
+          if (videoRef.current) {
+            videoRef.current.play().catch((playError) => {
+              console.warn('⚠️ Error iniciando reproducción automática:', playError)
+            })
+          }
+        }
+        
+        videoRef.current.onloadeddata = () => {
+          console.log('✅ Datos del video cargados')
+        }
+        
+        videoRef.current.oncanplay = () => {
+          console.log('✅ Video listo para reproducir')
         }
         
         videoRef.current.onerror = (e) => {
           console.error('❌ Error en el elemento video:', e)
+        }
+
+        // Intentar reproducir inmediatamente
+        try {
+          await videoRef.current.play()
+          console.log('✅ Video reproduciéndose correctamente')
+        } catch (playError) {
+          console.warn('⚠️ Reproducción automática bloqueada:', playError)
         }
       }
       
@@ -194,7 +263,18 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
     } catch (error) {
       console.error('❌ Error accediendo a la cámara:', error)
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-      alert(`No se puede acceder a la cámara: ${errorMessage}\n\nAsegúrate de:\n1. Permitir el acceso a la cámara\n2. Usar HTTPS o localhost\n3. Tener una cámara disponible`)
+      
+      // Mensaje de error más detallado
+      let troubleshootingMessage = `No se puede acceder a la cámara: ${errorMessage}\n\n`
+      troubleshootingMessage += `📋 Pasos para solucionar:\n`
+      troubleshootingMessage += `1. 🔒 Permitir acceso a la cámara en este sitio\n`
+      troubleshootingMessage += `2. 🌐 Verificar que estés usando HTTPS\n`
+      troubleshootingMessage += `3. 📷 Comprobar que la cámara funciona en otras apps\n`
+      troubleshootingMessage += `4. 🔄 Intentar refrescar la página\n`
+      troubleshootingMessage += `5. 🔧 Probar con otro navegador\n\n`
+      troubleshootingMessage += `💡 Navegador: ${navigator.userAgent.split(' ')[0]}`
+      
+      alert(troubleshootingMessage)
     }
   }
 
@@ -259,32 +339,100 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
     onPhotoTaken('')
   }
 
+  // Función de diagnóstico de cámara
+  const diagnosticCamera = async () => {
+    try {
+      console.log('🔍 === DIAGNÓSTICO DE CÁMARA ===')
+      
+      // Verificar API disponible
+      const hasUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+      console.log('📱 getUserMedia disponible:', hasUserMedia)
+      
+      // Obtener dispositivos de media
+      if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const videoDevices = devices.filter(device => device.kind === 'videoinput')
+        console.log('📹 Dispositivos de video encontrados:', videoDevices.length)
+        videoDevices.forEach((device, index) => {
+          console.log(`  ${index + 1}. ${device.label || `Cámara ${index + 1}`} (ID: ${device.deviceId})`)
+        })
+      }
+      
+      // Verificar permisos
+      if (navigator.permissions) {
+        try {
+          const permission = await navigator.permissions.query({ name: 'camera' as PermissionName })
+          console.log('🔒 Estado de permisos de cámara:', permission.state)
+        } catch (permError) {
+          console.log('🔒 No se puede verificar permisos:', permError)
+        }
+      }
+      
+      // Información del navegador
+      console.log('🌐 Navegador:', navigator.userAgent)
+      console.log('🔐 Protocolo:', window.location.protocol)
+      console.log('🌍 Origen:', window.location.origin)
+      
+      alert('🔍 Diagnóstico completado. Revisa la consola (F12) para ver los resultados detallados.')
+      
+    } catch (error) {
+      console.error('❌ Error en diagnóstico:', error)
+      alert(`❌ Error en diagnóstico: ${error}`)
+    }
+  }
+
   return (
     <div className="space-y-3">
       {!photo && !cameraActive && (
-        <Button type="button" onClick={startCamera} variant="outline" className="w-full">
-          <Camera className="h-4 w-4 mr-2" />
-          Tomar foto del almacenamiento
-        </Button>
+        <div className="space-y-2">
+          <Button type="button" onClick={startCamera} variant="outline" className="w-full">
+            <Camera className="h-4 w-4 mr-2" />
+            Tomar foto del almacenamiento
+          </Button>
+          <Button type="button" onClick={diagnosticCamera} variant="ghost" className="w-full text-xs">
+            🔍 Diagnosticar cámara
+          </Button>
+        </div>
       )}
 
       {cameraActive && (
         <div className="space-y-2">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            className="w-full h-48 bg-black rounded"
-          />
+          <div className="relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              controls={false}
+              style={{ 
+                transform: 'scaleX(-1)', // Efecto espejo para mayor naturalidad
+                objectFit: 'cover' 
+              }}
+              className="w-full h-64 bg-gray-900 rounded-lg border-2 border-gray-300"
+              onLoadStart={() => console.log('📹 Video iniciando carga...')}
+              onLoadedMetadata={() => console.log('📹 Metadata cargada')}
+              onCanPlay={() => console.log('📹 Video puede reproducirse')}
+              onPlay={() => console.log('📹 Video reproduciendo')}
+              onError={(e) => console.error('📹 Error en video:', e)}
+            />
+            {/* Overlay con información de debug en desarrollo */}
+            <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs p-1 rounded">
+              📹 Cámara activa
+            </div>
+          </div>
           <div className="flex gap-2">
             <Button type="button" onClick={takePhoto} className="flex-1">
               <Camera className="h-4 w-4 mr-2" />
-              Capturar
+              Capturar Foto
             </Button>
             <Button type="button" onClick={stopCamera} variant="outline">
+              <X className="h-4 w-4 mr-2" />
               Cancelar
             </Button>
           </div>
+          <p className="text-xs text-gray-600 text-center">
+            💡 Si la pantalla está negra, verifica los permisos de cámara en tu navegador
+          </p>
         </div>
       )}
 
