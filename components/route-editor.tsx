@@ -888,6 +888,7 @@ export default function RouteEditor({
   };
 
   const [transporterLink, setTransporterLink] = useState<string | null>(null);
+  const [transporterQRLink, setTransporterQRLink] = useState<string | null>(null);
   const [showTransporterModal, setShowTransporterModal] = useState(false);
   const [localIP, setLocalIP] = useState<string | null>(null);
 
@@ -995,16 +996,18 @@ export default function RouteEditor({
     console.log('🌐 Window origin:', window.location.origin)
     console.log('📦 Datos codificados incluidos en URL para compatibilidad móvil')
     
+    // Establecer AMBOS links
+    setTransporterLink(finalLink); // Link completo para copiar
+    setTransporterQRLink(compactLink); // Link compacto para QR
+    
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       // En desarrollo - necesita túnel público
-      setTransporterLink(finalLink);
       setLocalIP("desarrollo-local"); // Flag para mostrar instrucciones especiales
-      console.log('🏠 Modo desarrollo - link establecido:', finalLink)
+      console.log('🏠 Modo desarrollo - links establecidos')
     } else {
       // En producción - usar URL normal (ya accesible públicamente)
-      setTransporterLink(finalLink);
       setLocalIP("produccion"); // Flag para mostrar que está listo
-      console.log('🌍 Modo producción - link establecido:', finalLink)
+      console.log('🌍 Modo producción - links establecidos')
     }
     
     setShowTransporterModal(true);
@@ -1712,12 +1715,13 @@ export default function RouteEditor({
                 <p className="text-sm text-gray-600 mb-2">📱 Código QR para acceso rápido:</p>
                 {/* Usar versión compacta para QR más pequeño */}
                 <img 
-                  src={generateQRCode(compactLink)} 
+                  src={transporterQRLink ? generateQRCode(transporterQRLink) : ''} 
                   alt="QR Code para acceso móvil" 
                   className="mx-auto border rounded"
                   onError={(e) => {
                     console.log('⚠️ QR compacto falló, intentando sin datos');
-                    e.currentTarget.src = generateQRCode(`${window.location.origin}/transporter/${currentRouteId}`);
+                    const basicLink = `${window.location.origin}/transporter/route-${Date.now()}`;
+                    e.currentTarget.src = generateQRCode(basicLink);
                     e.currentTarget.nextElementSibling!.style.display = 'block';
                   }}
                 />
