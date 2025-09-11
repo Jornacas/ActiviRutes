@@ -150,6 +150,8 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [photo, setPhoto] = useState<string>('')
   const [cameraActive, setCameraActive] = useState(false)
+  const [showCameraError, setShowCameraError] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const startCamera = async () => {
     try {
@@ -264,15 +266,15 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
       console.error('❌ Error accediendo a la cámara:', error)
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
       
-      // Mensaje de error más detallado
-      let troubleshootingMessage = `No se puede acceder a la cámara: ${errorMessage}\n\n`
-      troubleshootingMessage += `📋 Pasos para solucionar:\n`
-      troubleshootingMessage += `1. 🔒 Permitir acceso a la cámara en este sitio\n`
-      troubleshootingMessage += `2. 🌐 Verificar que estés usando HTTPS\n`
-      troubleshootingMessage += `3. 📷 Comprobar que la cámara funciona en otras apps\n`
-      troubleshootingMessage += `4. 🔄 Intentar refrescar la página\n`
-      troubleshootingMessage += `5. 🔧 Probar con otro navegador\n\n`
-      troubleshootingMessage += `💡 Navegador: ${navigator.userAgent.split(' ')[0]}`
+      setShowCameraError(true)
+      
+      // Mensaje de error más detallado pero más corto
+      let troubleshootingMessage = `❌ No se puede acceder a la cámara: ${errorMessage}\n\n`
+      troubleshootingMessage += `💡 Usa el botón "Subir desde Galería" como alternativa.\n\n`
+      troubleshootingMessage += `🔧 Para solucionar la cámara:\n`
+      troubleshootingMessage += `• Permitir acceso a la cámara\n`
+      troubleshootingMessage += `• Usar HTTPS o refrescar la página\n`
+      troubleshootingMessage += `• Probar con otro navegador`
       
       alert(troubleshootingMessage)
     }
@@ -339,6 +341,45 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
     onPhotoTaken('')
   }
 
+  // Función para subir foto desde galería (alternativa a cámara)
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validar que sea imagen
+    if (!file.type.startsWith('image/')) {
+      alert('❌ Por favor selecciona un archivo de imagen')
+      return
+    }
+
+    // Validar tamaño (máximo 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('❌ La imagen es demasiado grande. Máximo 5MB.')
+      return
+    }
+
+    console.log('📎 Procesando archivo desde galería:', file.name, '- Tamaño:', Math.round(file.size / 1024), 'KB')
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const result = e.target?.result as string
+      if (result) {
+        console.log('✅ Imagen cargada desde galería exitosamente')
+        setPhoto(result)
+        onPhotoTaken(result)
+      }
+    }
+    reader.onerror = () => {
+      console.error('❌ Error leyendo archivo')
+      alert('❌ Error al leer la imagen')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const openFileSelector = () => {
+    fileInputRef.current?.click()
+  }
+
   // Función de diagnóstico de cámara
   const diagnosticCamera = async () => {
     try {
@@ -387,11 +428,32 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
         <div className="space-y-2">
           <Button type="button" onClick={startCamera} variant="outline" className="w-full">
             <Camera className="h-4 w-4 mr-2" />
-            Tomar foto del almacenamiento
+            Tomar foto con cámara
           </Button>
-          <Button type="button" onClick={diagnosticCamera} variant="ghost" className="w-full text-xs">
-            🔍 Diagnosticar cámara
-          </Button>
+          
+          <div className="flex gap-2">
+            <Button type="button" onClick={openFileSelector} variant="outline" className="flex-1">
+              <Package className="h-4 w-4 mr-2" />
+              Subir desde Galería
+            </Button>
+            <Button type="button" onClick={diagnosticCamera} variant="ghost" className="px-3">
+              🔍
+            </Button>
+          </div>
+          
+          {showCameraError && (
+            <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+              ⚠️ Problema con la cámara. Usa "Subir desde Galería" como alternativa.
+            </div>
+          )}
+          
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
         </div>
       )}
 
