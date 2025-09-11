@@ -1227,17 +1227,29 @@ function DeliveryModule({
     })
   }, [deliveryPlans, debouncedSearchTerm, minStudents])
 
+  // Cache para días formateados
+  const dayFormatCache = useMemo(() => new Map<string, string>(), [])
+
   const plansByDay = useMemo(() => {
     const grouped: { [key: string]: DeliveryPlan[] } = {}
+    
     filteredPlans.forEach((plan) => {
-      const dayKey = format(plan.deliveryDate, "EEEE", { locale: es })
+      const dateKey = plan.deliveryDate.toDateString()
+      
+      // Usar cache para evitar format() repetidos
+      let dayKey = dayFormatCache.get(dateKey)
+      if (!dayKey) {
+        dayKey = format(plan.deliveryDate, "EEEE", { locale: es })
+        dayFormatCache.set(dateKey, dayKey)
+      }
+      
       if (!grouped[dayKey]) {
         grouped[dayKey] = []
       }
       grouped[dayKey].push(plan)
     })
     return grouped
-  }, [filteredPlans])
+  }, [filteredPlans, dayFormatCache])
 
   const generateRouteForDay = (plans: DeliveryPlan[]) => {
     const addresses = plans

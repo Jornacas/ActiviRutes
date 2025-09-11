@@ -952,27 +952,43 @@ export default function RouteEditor({
     localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify(routeData));
     console.log('💾 Ruta guardada en localStorage con key:', `savedRoute_${currentRouteId}`)
     
-    // Crear datos COMPLETOS para compartir vía URL (todas las escuelas del día)
-    const routeSummary = {
+    // Crear DOS versiones: una ultra comprimida para QR y otra completa para copiar
+    
+    // Versión ULTRA comprimida para QR (máximo 5 items más importantes)
+    const compactSummary = {
+      i: currentRouteId,
+      t: config.type[0], // d/p
+      n: currentItems.length,
+      s: currentItems.slice(0, 5).map(item => ({
+        i: item.id,
+        n: item.name.split(' ').slice(0, 2).join(' '), // Solo 2 palabras
+        a: item.activities.slice(0, 1) // Solo 1 actividad
+      }))
+    };
+    
+    // Versión COMPLETA para copiar/compartir
+    const fullSummary = {
       id: currentRouteId,
       type: config.type,
       day: config.selectedDay,
       total: currentItems.length,
-      items: currentItems.map(item => ({ // TODOS los items de la ruta
+      items: currentItems.map(item => ({
         id: item.id,
-        name: item.name, // Nombre completo de la escuela
-        address: item.address, // Dirección completa
-        activities: item.activities, // Todas las actividades
+        name: item.name,
+        address: item.address,
+        activities: item.activities,
         startTime: item.startTime || '09:00'
       }))
     };
     
-    // Codificar datos como base64 para incluir en URL
-    const encodedData = btoa(JSON.stringify(routeSummary));
+    // Codificar ambas versiones
+    const compactEncoded = btoa(JSON.stringify(compactSummary));
+    const fullEncoded = btoa(JSON.stringify(fullSummary));
     
-    // Generar link accesible desde cualquier lugar
+    // Links
     const hostname = window.location.hostname;
-    const finalLink = `${window.location.origin}/transporter/${currentRouteId}?data=${encodedData}`;
+    const compactLink = `${window.location.origin}/transporter/${currentRouteId}?data=${compactEncoded}`;
+    const finalLink = `${window.location.origin}/transporter/${currentRouteId}?data=${fullEncoded}`;
     
     console.log('🌐 Hostname:', hostname)
     console.log('🔗 Link final generado:', finalLink)
@@ -1694,23 +1710,22 @@ export default function RouteEditor({
               {/* QR Code optimizado */}
               <div className="bg-gray-50 p-3 rounded border text-center">
                 <p className="text-sm text-gray-600 mb-2">📱 Código QR para acceso rápido:</p>
-                {/* Intentar mostrar QR con datos completos, si es muy largo fallará gracefully */}
+                {/* Usar versión compacta para QR más pequeño */}
                 <img 
-                  src={generateQRCode(transporterLink)} 
+                  src={generateQRCode(compactLink)} 
                   alt="QR Code para acceso móvil" 
                   className="mx-auto border rounded"
                   onError={(e) => {
-                    console.log('⚠️ URL demasiado larga para QR, mostrando mensaje alternativo');
-                    e.currentTarget.style.display = 'none';
+                    console.log('⚠️ QR compacto falló, intentando sin datos');
+                    e.currentTarget.src = generateQRCode(`${window.location.origin}/transporter/${currentRouteId}`);
                     e.currentTarget.nextElementSibling!.style.display = 'block';
                   }}
                 />
                 <div className="text-xs text-amber-600 mt-2 p-2 bg-amber-50 rounded" style={{display: 'none'}}>
-                  ⚠️ Ruta con {currentItems.length} escuelas - QR no disponible.<br/>
-                  <strong>Usa "Copiar Link" para compartir por WhatsApp/Email</strong>
+                  ⚠️ QR básico (sin datos de ruta). Usa "Copiar Link" para datos completos.
                 </div>
                 <p className="text-xs text-blue-600 mt-1">
-                  ✅ Incluye todas las {currentItems.length} escuelas de la ruta
+                  📦 Versión optimizada - {Math.min(5, currentItems.length)} de {currentItems.length} escuelas
                 </p>
               </div>
 

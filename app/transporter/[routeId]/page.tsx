@@ -240,20 +240,42 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
       setStream(mediaStream)
       
       if (videoRef.current) {
+        console.log('📹 Asignando stream al elemento video...')
         videoRef.current.srcObject = mediaStream
         
-        // Configurar eventos del video
+        // Verificar las pistas del stream
+        const videoTracks = mediaStream.getVideoTracks()
+        console.log('📋 Pistas de video:', videoTracks.length)
+        videoTracks.forEach((track, index) => {
+          console.log(`   Pista ${index}:`, {
+            label: track.label,
+            enabled: track.enabled,
+            readyState: track.readyState,
+            settings: track.getSettings()
+          })
+        })
+        
+        // Configurar eventos del video con más debugging
         videoRef.current.onloadedmetadata = () => {
           console.log('✅ Metadata del video cargada')
           console.log('📏 Dimensiones del video:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight)
           
-          // Asegurarse de que el video esté reproduciendo
+          // Forzar reproducción
           if (videoRef.current) {
-            videoRef.current.play().catch((playError) => {
-              console.warn('⚠️ Error iniciando reproducción automática:', playError)
-            })
+            videoRef.current.play()
+              .then(() => console.log('▶️ Video reproduciendo correctamente'))
+              .catch((playError) => {
+                console.error('❌ Error iniciando reproducción:', playError)
+                // Intentar interacción manual
+                alert('Toca en el video para iniciarlo manualmente')
+              })
           }
         }
+        
+        // Eventos adicionales para debugging
+        videoRef.current.oncanplay = () => console.log('✅ Video puede reproducirse')
+        videoRef.current.onplaying = () => console.log('▶️ Video está reproduciendo')
+        videoRef.current.onerror = (e) => console.error('❌ Error en elemento video:', e)
         
         videoRef.current.onloadeddata = () => {
           console.log('✅ Datos del video cargados')
@@ -695,17 +717,23 @@ export default function TransporterApp() {
           const decodedData = JSON.parse(atob(encodedData))
           console.log('✅ Datos decodificados:', decodedData)
           
-          // Convertir los datos COMPLETOS a formato RouteItem
-          const routeItemsFromUrl: RouteItem[] = decodedData.items.map((item: any, index: number) => ({
-            id: item.id || `url-item-${index}`,
-            name: item.name || `Centro ${index + 1}`, // Nombre completo de escuela
-            address: item.address || 'Dirección no disponible', // Dirección completa
-            activities: item.activities || [],
-            type: decodedData.type as "delivery" | "pickup" || "delivery",
+          // Manejar AMBOS formatos: compacto (s) y completo (items)
+          const dataItems = decodedData.s || decodedData.items || []
+          const routeItemsFromUrl: RouteItem[] = dataItems.map((item: any, index: number) => ({
+            id: item.i || item.id || `url-item-${index}`,
+            name: item.n || item.name || `Centro ${index + 1}`,
+            address: item.address || 'Dirección desde ruta compartida',
+            activities: item.a || item.activities || [],
+            type: (decodedData.t === 'd' ? 'delivery' : decodedData.t === 'p' ? 'pickup' : decodedData.type) || "delivery",
             startTime: item.startTime || `${9 + index}:00`,
             totalStudents: 0,
             price: 0
           }))
+          
+          // Si es formato compacto, avisar que hay más datos
+          if (decodedData.s && decodedData.n > decodedData.s.length) {
+            console.log(`📦 Formato compacto: mostrando ${decodedData.s.length} de ${decodedData.n} escuelas totales`)
+          }
           
           setRouteItems(routeItemsFromUrl)
           console.log(`✅ Ruta cargada desde URL con ${routeItemsFromUrl.length} elementos`)
@@ -826,22 +854,68 @@ export default function TransporterApp() {
   const openCompleteRoute = () => {
     if (routeItems.length === 0) return
     
-    // Crear URL con múltiples waypoints para Google Maps
+    console.log("🗺️ Abriendo Google Maps con ruta completa...")
+    console.log("📍 Elementos de la ruta:", routeItems.length, "paradas")
+    
+    // Google Maps tiene límite de 25 waypoints. Crear múltiples rutas si es necesario
+    const maxWaypoints = 23 // Reservar 2 para origen y destino
     const origin = encodeURIComponent("Eixos Creativa, Barcelona")
-    const destination = encodeURIComponent("Eixos Creativa, Barcelona") // Volver al origen
     
-    // Todos los elementos de la ruta serán waypoints
-    const waypoints = routeItems
-      .map(item => encodeURIComponent(`${item.address}, Barcelona, España`))
-      .join('|')
-    
-    let googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`
-    if (waypoints && waypoints.length > 0) {
-      googleMapsUrl += `&waypoints=${waypoints}`
+    if (routeItems.length <= maxWaypoints) {
+      // Una sola ruta - INCLUIR TODAS LAS PARADAS
+      const destination = encodeURIComponent("Eixos Creativa, Barcelona")
+      
+      // Usar NOMBRES de escuelas + direcciones para mejor identificación
+      const waypoints = routeItems
+        .map(item => {
+          const schoolName = item.name.includes('Escola') ? item.name : `Escola ${item.name}`
+          return encodeURIComponent(`${schoolName}, ${item.address}, Barcelona`)
+        })
+        .join('|')
+      
+      let googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`
+      if (waypoints && waypoints.length > 0) {
+        googleMapsUrl += `&waypoints=${waypoints}`
+      }
+      
+      console.log("🗺️ Google Maps URL (ruta única):", googleMapsUrl)
+      console.log(`✅ Incluyendo TODAS las ${routeItems.length} paradas`)
+      window.open(googleMapsUrl, "_blank")
+      
+    } else {
+      // Múltiples rutas para más de 23 paradas
+      const chunks = []
+      for (let i = 0; i < routeItems.length; i += maxWaypoints) {
+        chunks.push(routeItems.slice(i, i + maxWaypoints))
+      }
+      
+      console.log(`🗺️ Creando ${chunks.length} rutas separadas para ${routeItems.length} paradas`)
+      alert(`La ruta tiene ${routeItems.length} paradas. Se abrirán ${chunks.length} pestañas de Google Maps.`)
+      
+      chunks.forEach((chunk, index) => {
+        const chunkOrigin = index === 0 ? origin : encodeURIComponent(`${chunks[index-1][chunks[index-1].length-1].name}, Barcelona`)
+        const chunkDestination = index === chunks.length - 1 ? 
+          encodeURIComponent("Eixos Creativa, Barcelona") : 
+          encodeURIComponent(`${chunk[chunk.length-1].name}, Barcelona`)
+        
+        const waypoints = chunk
+          .map(item => {
+            const schoolName = item.name.includes('Escola') ? item.name : `Escola ${item.name}`
+            return encodeURIComponent(`${schoolName}, ${item.address}, Barcelona`)
+          })
+          .join('|')
+        
+        let googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${chunkOrigin}&destination=${chunkDestination}`
+        if (waypoints) {
+          googleMapsUrl += `&waypoints=${waypoints}`
+        }
+        
+        console.log(`🗺️ Ruta ${index + 1}/${chunks.length} (${chunk.length} paradas):`, googleMapsUrl)
+        setTimeout(() => {
+          window.open(googleMapsUrl, "_blank")
+        }, index * 1500) // Delay entre ventanas
+      })
     }
-    
-    console.log("🗺️ Google Maps URL:", googleMapsUrl) // Debug
-    window.open(googleMapsUrl, "_blank")
   }
 
   // Calcular progreso
