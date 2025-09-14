@@ -71,45 +71,72 @@ export default function AdminPage() {
       console.log('🔄 Sincronizando datos de Sheets a localStorage...')
       
       sheetsDeliveries.forEach(delivery => {
-        // Guardar cada entrega individual para que funcionen los links de informes
+        // Solo sincronizar datos básicos de Google Sheets (sin imágenes)
+        // Para mantener compatibilidad con informes individuales
+        const basicDeliveryData = {
+          deliveryId: delivery.deliveryId,
+          timestamp: delivery.timestamp,
+          routeId: delivery.routeId,
+          schoolName: delivery.schoolName,
+          schoolAddress: delivery.schoolAddress,
+          recipientName: delivery.recipientName,
+          activities: delivery.activities,
+          notes: delivery.notes,
+          status: delivery.status,
+          source: 'sheets_sync', // Marcar como sincronizado desde Sheets
+          signature: delivery.signature ? 'Disponible en dispositivo original' : undefined,
+          photoUrl: delivery.photoUrl ? 'Disponible en dispositivo original' : undefined
+        }
+        
         const key = `delivery_${delivery.deliveryId}`
-        localStorage.setItem(key, JSON.stringify(delivery))
+        localStorage.setItem(key, JSON.stringify(basicDeliveryData))
       })
       
-      console.log(`✅ ${sheetsDeliveries.length} entregas sincronizadas a localStorage`)
+      console.log(`✅ ${sheetsDeliveries.length} entregas sincronizadas a localStorage (datos básicos)`)
     } catch (error) {
       console.warn('⚠️ Error sincronizando a localStorage:', error)
     }
   }
 
-  // Cargar entregas desde Google Sheets
+  // Cargar entregas desde Google Sheets VÍA ENDPOINT NEXTJS
   const loadDeliveriesFromSheets = async () => {
     setIsLoading(true)
     
     try {
-      console.log('📊 Cargando entregas desde Google Sheets...')
+      console.log('📊 Cargando entregas desde Google Sheets vía endpoint...')
       
-      // Por limitaciones de CORS con Google Apps Script, cargar datos locales
-      // y mostrar mensaje explicativo
-      console.log('ℹ️ Cargando datos locales por limitaciones CORS de Google Apps Script')
+      // Usar nuestro endpoint de Next.js que evita CORS
+      const response = await fetch('/api/deliveries', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
       
-      setIsConnectedToSheets(false)
-      loadDeliveriesFromLocalStorage()
+      if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status}`)
+      }
       
-      // Intentar notificar al usuario sobre la limitación
-      if (deliveries.length === 0) {
-        console.warn(`
-        ⚠️ LIMITACIÓN GOOGLE APPS SCRIPT:
-        - Google Apps Script no permite lectura directa de respuestas por CORS
-        - Los datos SÍ llegan a Google Sheets correctamente
-        - Para ver datos de Sheets, usa: Datos Locales
-        - Los links de informes funcionan correctamente
-        `)
+      const result = await response.json()
+      console.log('📥 Respuesta del endpoint:', result.status, result.message)
+      
+      if (result.status === 'success') {
+        console.log(`✅ ${result.data.length} entregas obtenidas desde Google Sheets`)
+        
+        // Sincronizar con localStorage para que los informes funcionen
+        syncSheetsDataToLocalStorage(result.data)
+        
+        setDeliveries(result.data)
+        setIsConnectedToSheets(true)
+        setLastUpdate(new Date())
+      } else {
+        throw new Error(result.message || 'Error desconocido del endpoint')
       }
       
     } catch (error) {
       console.error('❌ Error conectando con Google Sheets:', error)
       setIsConnectedToSheets(false)
+      console.log('🔄 Fallback: Cargando datos locales...')
       // Fallback a datos locales
       loadDeliveriesFromLocalStorage()
     } finally {
@@ -634,21 +661,41 @@ export default function AdminPage() {
       
       {/* Información sobre la fuente de datos */}
       {dataSource === 'sheets' && (
-        <Card className="bg-blue-50 border-blue-200">
+        <Card className={isConnectedToSheets ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200"}>
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <Wifi className="h-5 w-5 text-blue-600 mt-0.5" />
+              {isConnectedToSheets ? (
+                <Wifi className="h-5 w-5 text-green-600 mt-0.5" />
+              ) : (
+                <WifiOff className="h-5 w-5 text-yellow-600 mt-0.5" />
+              )}
               <div className="text-sm">
-                <h4 className="font-medium text-blue-900 mb-1">Conectado a Google Sheets</h4>
-                <p className="text-blue-800 mb-2">
-                  Los datos se cargan directamente desde la hoja de "Entregas" en Google Sheets.
-                  Las entregas aparecen aquí cuando los transportistas las confirman.
-                </p>
-                <div className="text-xs text-blue-700">
-                  <p>📊 Hoja: {GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME}</p>
-                  <p>🔄 Actualización: Tiempo real por eventos</p>
-                  <p>🔗 Los informes incluyen links directos a fotos y firmas</p>
-                </div>
+                {isConnectedToSheets ? (
+                  <>
+                    <h4 className="font-medium text-green-900 mb-1">✅ Conectado a Google Sheets</h4>
+                    <p className="text-green-800 mb-2">
+                      Datos sincronizados desde Google Sheets. Las entregas de todos los transportistas 
+                      aparecen aquí automáticamente cuando se confirman.
+                    </p>
+                    <div className="text-xs text-green-700">
+                      <p>📊 Hoja: {GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME}</p>
+                      <p>🔄 Sincronización: Automática vía Next.js API</p>
+                      <p>📱 Fotos/Firmas: Disponibles en dispositivos originales</p>
+                      <p>🔗 Informes: Generados dinámicamente</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h4 className="font-medium text-yellow-900 mb-1">⚠️ Problema de conexión</h4>
+                    <p className="text-yellow-800 mb-2">
+                      No se pudo conectar con Google Sheets. Mostrando datos locales como respaldo.
+                    </p>
+                    <div className="text-xs text-yellow-700">
+                      <p>🔄 Solución: Presiona "Actualizar" para reintentar</p>
+                      <p>📱 Alternativa: Cambia a "Datos Locales"</p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </CardContent>

@@ -212,13 +212,27 @@ npm run lint         # Run ESLint
 - ✅ Route status optimization (remove heavy data, keep essentials)
 - ✅ Backward compatibility with existing data formats
 
-### 🔗 CORS Limitations with Google Apps Script
+### ✅ SOLVED: Cross-Device Data Synchronization via Google Sheets
 
-**Issue**: Direct data fetching from Google Apps Script has CORS limitations
-**Workaround**: 
-- Admin panel loads from localStorage (populated by transporter)
-- Warning message about GAS limitations displayed
-- Individual reports work via localStorage persistence
+**Previous Issue**: CORS limitations prevented direct data fetching from Google Apps Script
+**Solution**: Next.js API endpoint + Google Sheets integration (September 14, 2025)
+
+**Implementation**:
+1. **🔗 Next.js API Endpoint**: `/app/api/deliveries/route.ts` - Bypasses CORS
+2. **📊 Google Apps Script**: Enhanced with `getDeliveriesFromSheet()` function
+3. **🔄 Hybrid Sync**: Metadata via Google Sheets + Media via localStorage
+4. **📱 Cross-Device**: Admin panel now reads from Google Sheets automatically
+
+**Data Flow**:
+- **Smartphone** → Google Sheets (metadata) + localStorage (full data with images)
+- **Admin Panel** → Next.js API → Google Apps Script → Google Sheets
+- **Individual Reports** → localStorage (with fallback to Sheets data)
+
+**Features**:
+- ✅ Real-time cross-device synchronization
+- ✅ Automatic fallback to localStorage if Sheets unavailable  
+- ✅ Backward compatibility with existing data formats
+- ✅ Smart handling of large media files (photos/signatures)
 
 ## Development Patterns
 
