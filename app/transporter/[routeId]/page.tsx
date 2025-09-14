@@ -184,22 +184,21 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
         throw new Error('Los permisos de cámara han sido denegados. Por favor, habilítalos en la configuración del navegador.')
       }
       
-      // Lista de constraints específicos para móvil (simplificada para evitar pantalla negra)
+      // Lista de constraints ultra-simplificada para máxima compatibilidad
       const constraintsToTry = [
-        // Cámara trasera optimizada para móvil
+        // Configuración básica sin resolución específica
+        { video: { facingMode: 'environment' } },
+        // Cámara frontal básica
+        { video: { facingMode: 'user' } },
+        // Cualquier cámara sin restricciones
+        { video: true },
+        // Fallback con configuración mínima
         { 
           video: { 
-            facingMode: { exact: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: 640,
+            height: 480
           } 
-        },
-        // Cámara trasera sin resolución específica
-        { video: { facingMode: 'environment' } },
-        // Cámara frontal
-        { video: { facingMode: 'user' } },
-        // Cualquier cámara disponible
-        { video: true }
+        }
       ]
 
       let mediaStream: MediaStream | null = null
@@ -229,29 +228,74 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
       
       if (videoRef.current) {
         console.log('📹 Asignando stream al elemento video...')
-        videoRef.current.srcObject = mediaStream
+        const video = videoRef.current
         
-        // Configurar eventos del video
-        videoRef.current.onloadedmetadata = () => {
+        // Configurar propiedades del video para máxima compatibilidad
+        video.muted = true
+        video.playsInline = true
+        video.autoplay = true
+        
+        // Asignar el stream
+        video.srcObject = mediaStream
+        
+        // Configurar eventos del video con manejo más agresivo
+        video.onloadedmetadata = async () => {
           console.log('✅ Metadata del video cargada')
-          console.log('📏 Dimensiones del video:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight)
+          console.log('📏 Dimensiones del video:', video.videoWidth, 'x', video.videoHeight)
           
-          // Forzar reproducción
-          if (videoRef.current) {
-            videoRef.current.play()
-              .then(() => console.log('▶️ Video reproduciendo correctamente'))
-              .catch((playError) => {
-                console.error('❌ Error iniciando reproducción:', playError)
-                // Mostrar mensaje más claro
-                alert('🎥 La cámara está lista. Si ves pantalla negra, toca en el video para iniciarlo.')
-              })
+          // Intentar reproducir inmediatamente
+          try {
+            await video.play()
+            console.log('▶️ Video reproduciendo correctamente')
+          } catch (playError) {
+            console.error('❌ Error iniciando reproducción automática:', playError)
+            console.log('⚠️ Intentando reproducción manual...')
           }
         }
         
-        // Eventos adicionales para debugging
-        videoRef.current.oncanplay = () => console.log('✅ Video puede reproducirse')
-        videoRef.current.onplaying = () => console.log('▶️ Video está reproduciendo')
-        videoRef.current.onerror = (e) => console.error('❌ Error en elemento video:', e)
+        video.onloadeddata = async () => {
+          console.log('✅ Datos del video cargados')
+          if (video.paused) {
+            try {
+              await video.play()
+              console.log('▶️ Video iniciado desde onloadeddata')
+            } catch (e) {
+              console.log('⚠️ Play desde loadeddata falló')
+            }
+          }
+        }
+        
+        video.oncanplay = async () => {
+          console.log('✅ Video puede reproducirse')
+          if (video.paused) {
+            try {
+              await video.play()
+              console.log('▶️ Video iniciado desde oncanplay')
+            } catch (e) {
+              console.log('⚠️ Play desde canplay falló')
+            }
+          }
+        }
+        
+        video.onplaying = () => {
+          console.log('▶️ Video está reproduciendo activamente')
+        }
+        
+        video.onerror = (e) => {
+          console.error('❌ Error en elemento video:', e)
+        }
+        
+        // Intentar reproducir después de un pequeño delay
+        setTimeout(async () => {
+          if (video.paused) {
+            try {
+              await video.play()
+              console.log('▶️ Video iniciado con delay')
+            } catch (e) {
+              console.log('⚠️ Play con delay falló - requiere interacción del usuario')
+            }
+          }
+        }, 100)
       }
       
       setCameraActive(true)
@@ -483,38 +527,63 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
               playsInline
               muted
               controls={false}
+              preload="metadata"
               style={{ 
                 transform: 'scaleX(-1)', // Efecto espejo para mayor naturalidad
                 objectFit: 'cover',
                 backgroundColor: '#000' // Fondo negro explícito
               }}
-              className="w-full h-64 bg-gray-900 rounded-lg border-2 border-gray-300"
+              className="w-full h-64 bg-gray-900 rounded-lg border-2 border-gray-300 cursor-pointer"
               onLoadStart={() => {
                 console.log('📹 Video iniciando carga...')
-                console.log('📹 Video element:', videoRef.current)
-                console.log('📹 Stream asignado:', stream)
               }}
               onLoadedMetadata={() => {
                 console.log('📹 Metadata cargada')
                 if (videoRef.current) {
                   console.log('📹 Dimensiones:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight)
-                  console.log('📹 Stream tracks:', stream?.getTracks().length)
                 }
+              }}
+              onLoadedData={() => {
+                console.log('📹 Datos del video cargados')
               }}
               onCanPlay={() => {
                 console.log('📹 Video puede reproducirse')
-                // Forzar play si no está reproduciéndose
-                if (videoRef.current && videoRef.current.paused) {
-                  videoRef.current.play().catch(e => console.log('⚠️ Autoplay falló:', e))
-                }
+              }}
+              onCanPlayThrough={() => {
+                console.log('📹 Video puede reproducirse completamente')
               }}
               onPlay={() => console.log('📹 Video reproduciendo ✅')}
               onPlaying={() => console.log('📹 Video está activamente reproduciendo ✅')}
-              onError={(e) => console.error('📹 Error en video:', e)}
-              onClick={() => {
+              onPause={() => console.log('⏸️ Video pausado')}
+              onWaiting={() => console.log('⏳ Video esperando...')}
+              onStalled={() => console.log('🔄 Video detenido temporalmente')}
+              onError={(e) => {
+                console.error('📹 Error en video:', e)
+                console.error('📹 Error details:', e.currentTarget.error)
+              }}
+              onClick={async () => {
                 // Click para iniciar si está pausado
+                if (videoRef.current) {
+                  try {
+                    if (videoRef.current.paused) {
+                      await videoRef.current.play()
+                      console.log('▶️ Video iniciado por click del usuario')
+                    }
+                  } catch (e) {
+                    console.log('⚠️ Play manual falló:', e)
+                    alert('No se pudo iniciar el video. Intenta recargar la página.')
+                  }
+                }
+              }}
+              onTouchStart={async () => {
+                // Touch para dispositivos móviles
                 if (videoRef.current && videoRef.current.paused) {
-                  videoRef.current.play().catch(e => console.log('⚠️ Play manual falló:', e))
+                  try {
+                    await videoRef.current.play()
+                    console.log('▶️ Video iniciado por touch')
+                  } catch (e) {
+                    console.log('⚠️ Play por touch falló:', e)
+                  }
                 }
               }}
             />
@@ -522,9 +591,14 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
             <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs p-1 rounded">
               📹 Cámara activa
             </div>
-            {/* Overlay con instrucciones si está pausado */}
+            {/* Overlay con instrucciones dinámicas */}
             <div className="absolute bottom-2 left-2 right-2 bg-black bg-opacity-50 text-white text-xs p-2 rounded text-center">
-              {videoRef.current?.paused ? 'Toca aquí para iniciar la cámara' : 'Cámara funcionando correctamente'}
+              {videoRef.current?.paused ? 
+                '👆 TOCA AQUÍ para iniciar la cámara' : 
+                (videoRef.current?.videoWidth || 0) > 0 ? 
+                  '✅ Cámara funcionando - Lista para capturar' : 
+                  '⏳ Iniciando cámara...'
+              }
             </div>
           </div>
           <div className="flex gap-2">
@@ -537,9 +611,12 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
               Cancelar
             </Button>
           </div>
-          <p className="text-xs text-gray-600 text-center">
-            💡 Si la pantalla está negra, verifica los permisos de cámara en tu navegador
-          </p>
+          <div className="text-xs text-gray-600 text-center space-y-1">
+            <p>💡 Si la pantalla está negra:</p>
+            <p>1. Toca en el video para iniciar</p>
+            <p>2. Verifica permisos de cámara</p>
+            <p>3. Usa "Subir desde Galería"</p>
+          </div>
         </div>
       )}
 
