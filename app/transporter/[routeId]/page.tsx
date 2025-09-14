@@ -593,6 +593,16 @@ export default function TransporterApp() {
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null) // Item con formulario expandido
   const [signatures, setSignatures] = useState<{[itemId: string]: string}>({}) // Firmas por item
   const [photos, setPhotos] = useState<{[itemId: string]: string}>({}) // Fotos por item
+  const [debugLogs, setDebugLogs] = useState<string[]>([])
+  const [showDebugPanel, setShowDebugPanel] = useState(false)
+
+  // Función para añadir logs al panel de debug
+  const addDebugLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString('es-ES')
+    const logEntry = `${timestamp}: ${message}`
+    console.log(logEntry) // También log normal
+    setDebugLogs(prev => [logEntry, ...prev].slice(0, 50)) // Mantener solo últimos 50
+  }
 
   // Simular carga de datos de la ruta (en un caso real, vendría de una DB o API)
   useEffect(() => {
@@ -686,14 +696,14 @@ export default function TransporterApp() {
   // Función para manejar la entrega de un item
   const handleDeliver = async (itemId: string, recipientName: string, notes: string) => {
     try {
-      console.log('🚚 === INICIANDO ENTREGA ===')
-      console.log('📦 Item ID:', itemId)
-      console.log('👤 Receptor:', recipientName)
+      addDebugLog('🚚 === INICIANDO ENTREGA ===')
+      addDebugLog(`📦 Item ID: ${itemId}`)
+      addDebugLog(`👤 Receptor: ${recipientName}`)
       
       // Encontrar los datos del item para incluir información completa
       const item = routeItems.find(item => item.id === itemId)
       if (!item) {
-        console.error('❌ Item no encontrado:', itemId)
+        addDebugLog(`❌ Item no encontrado: ${itemId}`)
         alert('Error: No se encontró el item para entregar')
         return
       }
@@ -701,7 +711,7 @@ export default function TransporterApp() {
       // Generar ID único para la entrega e informe (simplificado)
       const timestamp = Date.now()
       const deliveryId = `del_${timestamp}`
-      console.log('🆔 ID generado:', deliveryId)
+      addDebugLog(`🆔 ID generado: ${deliveryId}`)
     
     const newDeliveryData: DeliveryData = {
       deliveryId, // NUEVO: ID único para la entrega
@@ -1249,6 +1259,45 @@ export default function TransporterApp() {
             </Card>
           )
         })}
+      </div>
+
+      {/* Panel de Debug (solo en desarrollo o cuando se necesite) */}
+      <div className="fixed bottom-4 right-4 z-50">
+        <Button
+          onClick={() => setShowDebugPanel(!showDebugPanel)}
+          variant="outline"
+          size="sm"
+          className="mb-2 bg-white shadow-lg"
+        >
+          🔧 Debug ({debugLogs.length})
+        </Button>
+        
+        {showDebugPanel && (
+          <div className="bg-white border rounded-lg shadow-xl p-4 max-w-sm max-h-96 overflow-y-auto">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-bold text-sm">Logs de Debug</h3>
+              <Button
+                onClick={() => setDebugLogs([])}
+                variant="outline"
+                size="sm"
+                className="text-xs px-2 py-1"
+              >
+                Limpiar
+              </Button>
+            </div>
+            <div className="space-y-1 text-xs font-mono">
+              {debugLogs.length === 0 ? (
+                <div className="text-gray-500">No hay logs aún...</div>
+              ) : (
+                debugLogs.map((log, index) => (
+                  <div key={index} className="border-b border-gray-100 pb-1 break-words">
+                    {log}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
