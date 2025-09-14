@@ -461,7 +461,7 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 }
 
 // Función para enviar datos de entrega a Google Sheets
-const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData): Promise<boolean> => {
+const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData, images?: {signature?: string, photo?: string}): Promise<boolean> => {
   try {
     // Estructura de datos para la hoja "Entregas":
     // FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME
@@ -480,13 +480,14 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData): Promise<b
       deliveryData.activities || '',
       deliveryData.recipientName || '',
       deliveryData.notes || '',
-      deliveryData.signature ? 'SÍ' : 'NO',
-      deliveryData.photoUrl ? 'SÍ' : 'NO',
-      deliveryData.reportUrl || '' // NUEVO: Link del informe con fotos
+      images?.signature ? 'SÍ' : 'NO', // Detectar si hay imagen de firma
+      images?.photo ? 'SÍ' : 'NO', // Detectar si hay imagen de foto
+      deliveryData.reportUrl || '' // Link del informe con fotos
     ]
 
     // Intentar envío real usando Google Apps Script Web App (método más simple)
     console.log("📊 Datos preparados para Google Sheets:", rowData)
+    console.log("📸 Imágenes a enviar:", images ? Object.keys(images) : 'ninguna')
     
     try {
       // Verificar si está configurada la URL del Google Apps Script
@@ -504,7 +505,8 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData): Promise<b
         },
         body: JSON.stringify({
           action: 'addDelivery',
-          data: rowData
+          data: rowData,
+          images: images || {} // Incluir imágenes
         })
       })
       
@@ -968,23 +970,36 @@ export default function TransporterApp() {
     setSignatures(prev => ({ ...prev, [itemId]: '' }))
     setPhotos(prev => ({ ...prev, [itemId]: '' }))
 
-    // Enviar a Google Sheets en segundo plano (MODIFICADO: incluir link del informe)
+    // Enviar a Google Sheets en segundo plano (MODIFICADO: incluir imágenes y link del informe)
     setSendingToSheets(itemId)
     try {
+      addDebugLog('📤 Enviando datos a Google Sheets con imágenes...')
+      
       // Crear datos para Google Sheets con link del informe
       const deliveryDataWithReport = {
         ...newDeliveryData,
-        reportUrl: `${window.location.origin}/informe/${deliveryId}` // NUEVO: Link del informe
+        reportUrl: `${window.location.origin}/informe/${deliveryId}` // Link del informe
       }
       
-      const success = await sendDeliveryToGoogleSheets(deliveryDataWithReport)
+      // Preparar imágenes para envío
+      const images = {}
+      if (newDeliveryData.signature && newDeliveryData.signature.startsWith('data:image')) {
+        images.signature = newDeliveryData.signature
+        addDebugLog('📝 Incluyendo firma en envío a Sheets')
+      }
+      if (newDeliveryData.photoUrl && newDeliveryData.photoUrl.startsWith('data:image')) {
+        images.photo = newDeliveryData.photoUrl
+        addDebugLog('📸 Incluyendo foto en envío a Sheets')
+      }
+      
+      const success = await sendDeliveryToGoogleSheets(deliveryDataWithReport, images)
       if (success) {
-        console.log("✅ Entrega registrada en Google Sheets con link del informe")
+        addDebugLog("✅ Entrega registrada en Google Sheets con imágenes y link del informe")
       } else {
-        console.log("⚠️ No se pudo registrar en Google Sheets, pero se guardó localmente")
+        addDebugLog("⚠️ No se pudo registrar en Google Sheets, pero se guardó localmente")
       }
     } catch (error) {
-      console.error("Error enviando a Sheets:", error)
+      addDebugLog(`❌ Error enviando a Sheets: ${error}`)
     } finally {
       setSendingToSheets(null)
     }

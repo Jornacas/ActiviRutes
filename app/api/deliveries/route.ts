@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     // Procesar datos para el formato esperado por el admin
     const deliveries = data.data.map((row: any) => {
       // Mapear columnas de Google Sheets a formato del admin
-      // Estructura esperada: FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME
+      // Estructura esperada: FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME | URL_FIRMA | URL_FOTO
       const columns = Object.keys(row)
       
       // Procesar fecha y hora de Google Sheets
@@ -74,6 +74,10 @@ export async function GET(request: NextRequest) {
         console.warn('Error procesando fecha de Google Sheets:', error)
       }
 
+      // Obtener URLs de Google Drive si están disponibles
+      const signatureUrl = row[columns[11]] || '' // URL_FIRMA
+      const photoUrl = row[columns[12]] || '' // URL_FOTO
+
       return {
         deliveryId: `sheets_${row.rowIndex}`, // ID temporal basado en fila
         timestamp: timestamp,
@@ -83,11 +87,13 @@ export async function GET(request: NextRequest) {
         activities: row[columns[5]] || '',
         recipientName: row[columns[6]] || '',
         notes: row[columns[7]] || '',
-        signature: row[columns[8]] === 'SÍ' ? 'Disponible en dispositivo' : undefined,
-        photoUrl: row[columns[9]] === 'SÍ' ? 'Disponible en dispositivo' : undefined,
+        signature: signatureUrl || (row[columns[8]] === 'SÍ' ? 'Disponible en Google Drive' : undefined),
+        photoUrl: photoUrl || (row[columns[9]] === 'SÍ' ? 'Disponible en Google Drive' : undefined),
         reportUrl: row[columns[10]] || '',
         status: 'completed' as const,
-        source: 'sheets' // Marcar que viene de Google Sheets
+        source: 'sheets', // Marcar que viene de Google Sheets
+        signatureUrl: signatureUrl, // URL directa de Google Drive
+        photoUrlDrive: photoUrl // URL directa de Google Drive
       }
     })
     

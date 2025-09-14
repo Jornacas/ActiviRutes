@@ -64,6 +64,8 @@ export default function AdminPage() {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   const [dataSource, setDataSource] = useState<'local' | 'sheets'>('sheets')
   const [isConnectedToSheets, setIsConnectedToSheets] = useState(false)
+  const [selectedDeliveries, setSelectedDeliveries] = useState<Set<string>>(new Set())
+  const [selectAll, setSelectAll] = useState(false)
 
   // Función para sincronizar datos de Sheets a localStorage
   const syncSheetsDataToLocalStorage = (sheetsDeliveries: DeliveryData[]) => {
@@ -123,10 +125,17 @@ export default function AdminPage() {
       if (result.status === 'success') {
         console.log(`✅ ${result.data.length} entregas obtenidas desde Google Sheets`)
         
-        // Sincronizar con localStorage para que los informes funcionen
-        syncSheetsDataToLocalStorage(result.data)
+        // Ordenar datos de Google Sheets (más recientes primero)
+        const sortedDeliveries = result.data.sort((a: DeliveryData, b: DeliveryData) => {
+          const dateA = new Date(a.timestamp).getTime()
+          const dateB = new Date(b.timestamp).getTime()
+          return dateB - dateA // Descendente: más recientes primero
+        })
         
-        setDeliveries(result.data)
+        // Sincronizar con localStorage para que los informes funcionen
+        syncSheetsDataToLocalStorage(sortedDeliveries)
+        
+        setDeliveries(sortedDeliveries)
         setIsConnectedToSheets(true)
         setLastUpdate(new Date())
       } else {
@@ -201,8 +210,12 @@ export default function AdminPage() {
         }
       })
       
-      // Ordenar por timestamp (más recientes primero)
-      loadedDeliveries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      // Ordenar por timestamp (más recientes PRIMERO - arriba)
+      loadedDeliveries.sort((a, b) => {
+        const dateA = new Date(a.timestamp).getTime()
+        const dateB = new Date(b.timestamp).getTime()
+        return dateB - dateA // Descendente: más recientes primero
+      })
       
       setDeliveries(loadedDeliveries)
       setLastUpdate(new Date())
@@ -297,11 +310,56 @@ export default function AdminPage() {
     })
   }
 
-  // Eliminar entrega
+  // Manejar selección individual
+  const handleSelectDelivery = (deliveryId: string, checked: boolean) => {
+    const newSelected = new Set(selectedDeliveries)
+    if (checked) {
+      newSelected.add(deliveryId)
+    } else {
+      newSelected.delete(deliveryId)
+    }
+    setSelectedDeliveries(newSelected)
+    setSelectAll(newSelected.size === filteredDeliveries.length && filteredDeliveries.length > 0)
+  }
+
+  // Manejar seleccionar/deseleccionar todo
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allIds = new Set(filteredDeliveries.map(d => d.deliveryId))
+      setSelectedDeliveries(allIds)
+    } else {
+      setSelectedDeliveries(new Set())
+    }
+    setSelectAll(checked)
+  }
+
+  // Eliminar entrega individual
   const deleteDelivery = (deliveryId: string) => {
     if (confirm('¿Estás seguro de que quieres eliminar esta entrega?')) {
       localStorage.removeItem(`delivery_${deliveryId}`)
       loadDeliveries()
+      // Limpiar selección si estaba seleccionada
+      const newSelected = new Set(selectedDeliveries)
+      newSelected.delete(deliveryId)
+      setSelectedDeliveries(newSelected)
+    }
+  }
+
+  // Eliminar entregas seleccionadas
+  const deleteSelectedDeliveries = () => {
+    if (selectedDeliveries.size === 0) {
+      alert('No hay entregas seleccionadas')
+      return
+    }
+
+    if (confirm(`¿Estás seguro de que quieres eliminar ${selectedDeliveries.size} entregas seleccionadas?`)) {
+      selectedDeliveries.forEach(deliveryId => {
+        localStorage.removeItem(`delivery_${deliveryId}`)
+      })
+      setSelectedDeliveries(new Set())
+      setSelectAll(false)
+      loadDeliveries()
+      alert(`✅ ${selectedDeliveries.size} entregas eliminadas`)
     }
   }
 
@@ -543,7 +601,34 @@ export default function AdminPage() {
             </div>
             
             {/* Acciones masivas */}
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
+              {/* Checkbox seleccionar todo */}
+              {filteredDeliveries.length > 0 && (
+                <div className="flex items-center gap-2 mr-2 px-2 py-1 bg-gray-50 rounded">
+                  <input
+                    type="checkbox"
+                    checked={selectAll}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-xs text-gray-600">
+                    Todo ({selectedDeliveries.size}/{filteredDeliveries.length})
+                  </span>
+                </div>
+              )}
+              
+              {selectedDeliveries.size > 0 && (
+                <Button 
+                  onClick={deleteSelectedDeliveries} 
+                  variant="outline" 
+                  size="sm"
+                  className="bg-red-50 border-red-300 text-red-700 hover:bg-red-100"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Eliminar {selectedDeliveries.size}
+                </Button>
+              )}
+              
               <Button onClick={exportAllDeliveries} variant="outline" size="sm">
                 <Download className="h-4 w-4 mr-2" />
                 Exportar CSV
@@ -577,8 +662,16 @@ export default function AdminPage() {
             <Card key={delivery.deliveryId} className="hover:shadow-md transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
+                  <div className="flex items-center gap-3 flex-1">
+                    {/* Checkbox individual */}
+                    <input
+                      type="checkbox"
+                      checked={selectedDeliveries.has(delivery.deliveryId)}
+                      onChange={(e) => handleSelectDelivery(delivery.deliveryId, e.target.checked)}
+                      className="rounded"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
                       {getStatusIcon(delivery.status)}
                       <h3 className="font-medium text-gray-900">{delivery.schoolName}</h3>
                       {getStatusBadge(delivery.status)}

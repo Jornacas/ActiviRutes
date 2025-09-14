@@ -36,11 +36,15 @@ function doPost(e) {
     
     // Procesar según la acción solicitada
     if (data.action === 'addDelivery') {
-      return addDeliveryToSheet(data.data);
+      return addDeliveryToSheet(data.data, data.images);
     }
     
     if (data.action === 'getDeliveries') {
       return getDeliveriesFromSheet(data.sheetName);
+    }
+    
+    if (data.action === 'uploadImage') {
+      return uploadImageToDrive(data.imageData, data.fileName, data.type);
     }
     
     // Acción no reconocida
@@ -59,7 +63,61 @@ function doPost(e) {
   }
 }
 
-function addDeliveryToSheet(rowData) {
+/**
+ * Función para subir imágenes a Google Drive
+ */
+function uploadImageToDrive(base64Data, fileName, imageType) {
+  try {
+    console.log('📤 Subiendo imagen a Google Drive:', fileName, imageType);
+    
+    // Obtener o crear la carpeta ActiviRutes
+    const folders = DriveApp.getFoldersByName('ActiviRutes_Entregas');
+    let folder;
+    
+    if (folders.hasNext()) {
+      folder = folders.next();
+      console.log('📁 Usando carpeta existente: ActiviRutes_Entregas');
+    } else {
+      folder = DriveApp.createFolder('ActiviRutes_Entregas');
+      console.log('📁 Carpeta creada: ActiviRutes_Entregas');
+    }
+    
+    // Convertir base64 a blob
+    const base64 = base64Data.split(',')[1]; // Remover "data:image/...;base64,"
+    const binaryData = Utilities.base64Decode(base64);
+    const blob = Utilities.newBlob(binaryData, 'image/jpeg', fileName);
+    
+    // Subir archivo a Drive
+    const file = folder.createFile(blob);
+    
+    // Hacer el archivo público para visualización
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    // Obtener URL pública
+    const fileUrl = `https://drive.google.com/file/d/${file.getId()}/view`;
+    const directUrl = `https://drive.google.com/uc?id=${file.getId()}`; // URL directa para imágenes
+    
+    console.log('✅ Imagen subida exitosamente:', fileUrl);
+    
+    return createJSONResponse({
+      status: 'success',
+      message: 'Imagen subida correctamente',
+      fileId: file.getId(),
+      fileUrl: fileUrl,
+      directUrl: directUrl,
+      fileName: fileName
+    });
+    
+  } catch (error) {
+    console.error('❌ Error subiendo imagen:', error.toString());
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error subiendo imagen: ' + error.toString()
+    });
+  }
+}
+
+function addDeliveryToSheet(rowData, images) {
   try {
     // Configuración del Google Sheet
     const SHEET_ID = '1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I';
@@ -67,6 +125,45 @@ function addDeliveryToSheet(rowData) {
     
     console.log('📋 Abriendo Google Sheet ID:', SHEET_ID);
     console.log('📊 Datos a insertar:', rowData);
+    console.log('📸 Imágenes recibidas:', images ? Object.keys(images) : 'ninguna');
+    
+    // Procesar imágenes si existen
+    let signatureUrl = '';
+    let photoUrl = '';
+    
+    if (images) {
+      // Subir firma si existe
+      if (images.signature) {
+        console.log('📝 Procesando firma...');
+        try {
+          const signatureFileName = `firma_${Date.now()}.jpg`;
+          const signatureResult = uploadImageToDrive(images.signature, signatureFileName, 'signature');
+          const signatureData = JSON.parse(signatureResult.getContent());
+          if (signatureData.status === 'success') {
+            signatureUrl = signatureData.directUrl;
+            console.log('✅ Firma subida:', signatureUrl);
+          }
+        } catch (signatureError) {
+          console.warn('⚠️ Error subiendo firma:', signatureError);
+        }
+      }
+      
+      // Subir foto si existe  
+      if (images.photo) {
+        console.log('📸 Procesando foto...');
+        try {
+          const photoFileName = `foto_${Date.now()}.jpg`;
+          const photoResult = uploadImageToDrive(images.photo, photoFileName, 'photo');
+          const photoData = JSON.parse(photoResult.getContent());
+          if (photoData.status === 'success') {
+            photoUrl = photoData.directUrl;
+            console.log('✅ Foto subida:', photoUrl);
+          }
+        } catch (photoError) {
+          console.warn('⚠️ Error subiendo foto:', photoError);
+        }
+      }
+    }
     
     // Abrir el spreadsheet y la hoja específica
     const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
@@ -78,14 +175,31 @@ function addDeliveryToSheet(rowData) {
     
     console.log('✅ Hoja encontrada:', SHEET_NAME);
     
-    // Verificar headers (opcional - para debug)
-    const headers = sheet.getRange(1, 1, 1, 10).getValues()[0];
+    // Actualizar rowData con URLs de imágenes
+    // Estructura: FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME | URL_FIRMA | URL_FOTO
+    const updatedRowData = [
+      ...rowData.slice(0, 11), // Datos originales hasta LINK_INFORME
+      signatureUrl, // URL_FIRMA
+      photoUrl     // URL_FOTO
+    ];
+    
+    // Verificar headers y actualizar si es necesario
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     console.log('📋 Headers actuales:', headers);
     
+    // Si no existen las columnas de URLs, añadirlas
+    if (headers.length < 13) {
+      const newHeaders = [
+        'FECHA', 'HORA', 'RUTA_ID', 'ESCUELA', 'DIRECCION', 'ACTIVIDADES', 
+        'RECEPTOR', 'NOTAS', 'TIENE_FIRMA', 'TIENE_FOTO', 'LINK_INFORME', 
+        'URL_FIRMA', 'URL_FOTO'
+      ];
+      sheet.getRange(1, 1, 1, newHeaders.length).setValues([newHeaders]);
+      console.log('📋 Headers actualizados con URLs de imágenes');
+    }
+    
     // Insertar los datos como nueva fila
-    // Los datos vienen en el orden correcto:
-    // FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO
-    sheet.appendRow(rowData);
+    sheet.appendRow(updatedRowData);
     
     const timestamp = new Date().toISOString();
     console.log('✅ Datos insertados exitosamente en', timestamp);
@@ -96,8 +210,10 @@ function addDeliveryToSheet(rowData) {
         status: 'success',
         message: 'Datos agregados correctamente a la hoja ENTREGAS',
         timestamp: timestamp,
-        rowData: rowData,
-        sheetName: SHEET_NAME
+        rowData: updatedRowData,
+        sheetName: SHEET_NAME,
+        signatureUrl: signatureUrl,
+        photoUrl: photoUrl
       }))
       .setMimeType(ContentService.MimeType.JSON);
       
