@@ -171,33 +171,53 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
   }, [])
 
   const startCamera = async () => {
+    console.log('📷 === INICIANDO CÁMARA BÁSICA ===')
+    
     try {
-      // Método GOOGLE SCRIPT - Extremadamente simple
-      console.log('📷 Iniciando cámara (método Google Script)')
       setShowCameraError(false)
       
-      // Configuración MÍNIMA - exactamente como Google Script
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
-      })
+      // Método más básico posible
+      const constraints = { video: true }
+      console.log('🔄 Solicitando cámara con constraints básicos:', constraints)
       
-      // Asignar directamente al video
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.play()
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      console.log('✅ Stream obtenido:', stream)
+      
+      if (!videoRef.current) {
+        throw new Error('Elemento video no disponible')
       }
       
-      setStream(stream)
-      setCameraActive(true)
-      console.log('✅ Cámara iniciada')
+      const video = videoRef.current
+      console.log('📹 Configurando elemento video...')
+      
+      // Configuración mínima
+      video.srcObject = stream
+      video.muted = true
+      video.playsInline = true
+      
+      // Esperar a que se cargue y reproducir
+      video.onloadedmetadata = () => {
+        console.log('📹 Video cargado, dimensiones:', video.videoWidth, 'x', video.videoHeight)
+        video.play()
+          .then(() => {
+            console.log('▶️ Video reproduciendo')
+            setCameraActive(true)
+            setStream(stream)
+          })
+          .catch(err => {
+            console.error('❌ Error reproduciendo:', err)
+            setCameraActive(true) // Marcar como activa de todas formas
+            setStream(stream)
+          })
+      }
       
     } catch (error) {
-      console.error('❌ Error de cámara:', error)
+      console.error('❌ Error completo:', error)
       setShowCameraError(true)
       setCameraActive(false)
       
-      // Mensaje simple
-      alert('⚠️ No se pudo acceder a la cámara.\n\n💡 Usa "Subir desde Galería" como alternativa.')
+      const errorMsg = error instanceof Error ? error.message : 'Error desconocido'
+      alert(`❌ Error de cámara: ${errorMsg}\n\n💡 Usa "Subir desde Galería"`)
     }
   }
 
@@ -393,15 +413,21 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
       {cameraActive && (
         <div className="space-y-2">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-64 rounded-lg border bg-black"
-          />
+          <div className="relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-64 rounded-lg border bg-black"
+            />
+            {/* Overlay simple con información */}
+            <div className="absolute top-2 left-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
+              📹 Cámara activa - Toca "Capturar Foto" cuando esté lista
+            </div>
+          </div>
           <div className="flex gap-2">
-            <Button type="button" onClick={takePhoto} className="flex-1">
+            <Button type="button" onClick={takePhoto} className="flex-1 bg-green-600 hover:bg-green-700">
               <Camera className="h-4 w-4 mr-2" />
               Capturar Foto
             </Button>
@@ -410,6 +436,9 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
               Cerrar Cámara
             </Button>
           </div>
+          <p className="text-xs text-gray-600 text-center">
+            Si ves pantalla negra, espera unos segundos o usa "Subir desde Galería"
+          </p>
         </div>
       )}
 
