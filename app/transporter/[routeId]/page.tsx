@@ -703,8 +703,8 @@ export default function TransporterApp() {
       // Encontrar los datos del item para incluir información completa
       const item = routeItems.find(item => item.id === itemId)
       if (!item) {
-        addDebugLog(`❌ Item no encontrado: ${itemId}`)
-        alert('Error: No se encontró el item para entregar')
+        addDebugLog(`❌ ERROR CRÍTICO: Item no encontrado: ${itemId}`)
+        addDebugLog('❌ Cancelando entrega por item no válido')
         return
       }
 
@@ -731,22 +731,24 @@ export default function TransporterApp() {
 
     // Guardar datos completos para el informe individual (NUEVO)
     try {
+      addDebugLog('💾 Intentando guardar informe individual...')
       localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(newDeliveryData))
-      console.log('📄 Informe individual guardado:', `delivery_${deliveryId}`)
+      addDebugLog(`✅ Informe individual guardado: delivery_${deliveryId}`)
     } catch (storageError) {
-      console.warn('⚠️ Error guardando informe individual:', storageError)
+      addDebugLog(`❌ Error guardando informe individual: ${storageError}`)
     }
 
     // Guardar localmente inmediatamente (mantener para compatibilidad)
     try {
+      addDebugLog('💾 Intentando actualizar estado local...')
       setDeliveryStatus(prevStatus => {
         const updatedStatus = { ...prevStatus, [itemId]: newDeliveryData }
         localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(updatedStatus))
-        console.log("Estado de entrega guardado localmente:", updatedStatus)
+        addDebugLog(`✅ Estado local actualizado para ruta: ${routeId}`)
         return updatedStatus
       })
     } catch (storageError) {
-      console.warn('⚠️ Error guardando estado local:', storageError)
+      addDebugLog(`❌ Error guardando estado local: ${storageError}`)
     }
 
     // NUEVO: Disparar evento para el panel Admin
@@ -791,8 +793,9 @@ export default function TransporterApp() {
       setSendingToSheets(null)
     }
   } catch (error) {
-    console.error('❌ Error en handleDeliver:', error)
-    alert('Error procesando la entrega. Revisa la consola para más detalles.')
+    addDebugLog(`❌ ERROR CRÍTICO en handleDeliver: ${error}`)
+    addDebugLog(`📋 Detalles del error: ${JSON.stringify(error)}`)
+    addDebugLog('❌ Entrega cancelada por error')
     setSendingToSheets(null)
   }
 }
@@ -1261,36 +1264,63 @@ export default function TransporterApp() {
         })}
       </div>
 
-      {/* Panel de Debug (solo en desarrollo o cuando se necesite) */}
-      <div className="fixed bottom-4 right-4 z-50">
+      {/* Panel de Debug - MEJORADO para estar siempre visible */}
+      <div className="fixed bottom-4 right-4 z-[9999]">
         <Button
           onClick={() => setShowDebugPanel(!showDebugPanel)}
           variant="outline"
           size="sm"
-          className="mb-2 bg-white shadow-lg"
+          className={`mb-2 shadow-lg transition-colors ${
+            debugLogs.some(log => log.includes('❌')) 
+              ? 'bg-red-100 border-red-300 text-red-700' 
+              : 'bg-white'
+          }`}
         >
           🔧 Debug ({debugLogs.length})
+          {debugLogs.some(log => log.includes('❌')) && ' ⚠️'}
         </Button>
         
         {showDebugPanel && (
-          <div className="bg-white border rounded-lg shadow-xl p-4 max-w-sm max-h-96 overflow-y-auto">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="font-bold text-sm">Logs de Debug</h3>
-              <Button
-                onClick={() => setDebugLogs([])}
-                variant="outline"
-                size="sm"
-                className="text-xs px-2 py-1"
-              >
-                Limpiar
-              </Button>
+          <div className="bg-white border rounded-lg shadow-2xl p-4 w-80 max-h-[70vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-2 sticky top-0 bg-white">
+              <h3 className="font-bold text-sm">🔧 Logs de Debug</h3>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setDebugLogs([])}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs px-2 py-1"
+                >
+                  🗑️ Limpiar
+                </Button>
+                <Button
+                  onClick={() => setShowDebugPanel(false)}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs px-2 py-1"
+                >
+                  ✕
+                </Button>
+              </div>
             </div>
             <div className="space-y-1 text-xs font-mono">
               {debugLogs.length === 0 ? (
-                <div className="text-gray-500">No hay logs aún...</div>
+                <div className="text-gray-500 p-2 text-center">
+                  📱 No hay logs aún...<br />
+                  Procesa una entrega para ver logs
+                </div>
               ) : (
                 debugLogs.map((log, index) => (
-                  <div key={index} className="border-b border-gray-100 pb-1 break-words">
+                  <div 
+                    key={index} 
+                    className={`border-b border-gray-100 pb-1 break-words px-2 py-1 rounded ${
+                      log.includes('❌') 
+                        ? 'bg-red-50 border-red-200' 
+                        : log.includes('✅') 
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-gray-50'
+                    }`}
+                  >
                     {log}
                   </div>
                 ))
