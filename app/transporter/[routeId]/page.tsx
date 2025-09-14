@@ -598,11 +598,57 @@ export default function TransporterApp() {
 
   // Función para añadir logs al panel de debug
   const addDebugLog = (message: string) => {
-    const timestamp = new Date().toLocaleTimeString('es-ES')
-    const logEntry = `${timestamp}: ${message}`
-    console.log(logEntry) // También log normal
-    setDebugLogs(prev => [logEntry, ...prev].slice(0, 50)) // Mantener solo últimos 50
+    try {
+      const timestamp = new Date().toLocaleTimeString('es-ES')
+      const logEntry = `${timestamp}: ${message}`
+      console.log(logEntry) // También log normal
+      
+      // Guardar en localStorage también para persistencia
+      const existingLogs = localStorage.getItem('debugLogs_activirutes') || '[]'
+      const logs = JSON.parse(existingLogs)
+      logs.unshift(logEntry)
+      localStorage.setItem('debugLogs_activirutes', JSON.stringify(logs.slice(0, 50)))
+      
+      setDebugLogs(prev => [logEntry, ...prev].slice(0, 50)) // Mantener solo últimos 50
+    } catch (error) {
+      console.error('Error en addDebugLog:', error)
+    }
   }
+
+  // Capturar errores globales y mostrarlos en debug
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      addDebugLog(`🚨 ERROR GLOBAL: ${event.error?.message || event.message}`)
+      addDebugLog(`📍 Archivo: ${event.filename}:${event.lineno}`)
+      if (event.error?.stack) {
+        addDebugLog(`📋 Stack: ${event.error.stack.slice(0, 200)}...`)
+      }
+    }
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      addDebugLog(`🚨 PROMISE RECHAZADA: ${event.reason}`)
+      addDebugLog(`📋 Detalles: ${JSON.stringify(event.reason).slice(0, 200)}`)
+    }
+
+    window.addEventListener('error', handleError)
+    window.addEventListener('unhandledrejection', handleUnhandledRejection)
+
+    // Cargar logs persistentes al inicio
+    try {
+      const persistedLogs = localStorage.getItem('debugLogs_activirutes')
+      if (persistedLogs) {
+        const logs = JSON.parse(persistedLogs)
+        setDebugLogs(logs.slice(0, 20)) // Solo últimos 20 al cargar
+      }
+    } catch (error) {
+      console.warn('Error cargando logs persistentes:', error)
+    }
+
+    return () => {
+      window.removeEventListener('error', handleError)
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+    }
+  }, [])
 
   // Simular carga de datos de la ruta (en un caso real, vendría de una DB o API)
   useEffect(() => {
@@ -1264,34 +1310,55 @@ export default function TransporterApp() {
         })}
       </div>
 
-      {/* Panel de Debug - MEJORADO para estar siempre visible */}
-      <div className="fixed bottom-4 right-4 z-[9999]">
+      {/* Panel de Debug - ULTRA RESISTENTE */}
+      <div className="fixed bottom-4 right-4 z-[99999]" style={{position: 'fixed', zIndex: 99999}}>
         <Button
           onClick={() => setShowDebugPanel(!showDebugPanel)}
           variant="outline"
           size="sm"
-          className={`mb-2 shadow-lg transition-colors ${
-            debugLogs.some(log => log.includes('❌')) 
+          className={`mb-2 shadow-2xl transition-colors border-2 ${
+            debugLogs.some(log => log.includes('🚨')) 
+              ? 'bg-red-200 border-red-500 text-red-800 animate-pulse' 
+              : debugLogs.some(log => log.includes('❌')) 
               ? 'bg-red-100 border-red-300 text-red-700' 
-              : 'bg-white'
+              : 'bg-white border-blue-300'
           }`}
+          style={{position: 'relative', zIndex: 99999}}
         >
           🔧 Debug ({debugLogs.length})
+          {debugLogs.some(log => log.includes('🚨')) && ' 🚨'}
           {debugLogs.some(log => log.includes('❌')) && ' ⚠️'}
         </Button>
         
         {showDebugPanel && (
-          <div className="bg-white border rounded-lg shadow-2xl p-4 w-80 max-h-[70vh] overflow-y-auto">
+          <div className="bg-white border rounded-lg shadow-2xl p-4 w-80 max-h-[70vh] overflow-y-auto border-2 border-blue-300">
             <div className="flex justify-between items-center mb-2 sticky top-0 bg-white">
               <h3 className="font-bold text-sm">🔧 Logs de Debug</h3>
               <div className="flex gap-2">
                 <Button
-                  onClick={() => setDebugLogs([])}
+                  onClick={() => {
+                    localStorage.removeItem('debugLogs_activirutes')
+                    setDebugLogs([])
+                  }}
                   variant="outline"
                   size="sm"
                   className="text-xs px-2 py-1"
                 >
                   🗑️ Limpiar
+                </Button>
+                <Button
+                  onClick={() => {
+                    // Copiar logs al portapapeles para debugging
+                    const logsText = debugLogs.join('\n')
+                    navigator.clipboard.writeText(logsText).catch(() => {
+                      console.log('No se pudo copiar, logs:', logsText)
+                    })
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="text-xs px-2 py-1"
+                >
+                  📋 Copiar
                 </Button>
                 <Button
                   onClick={() => setShowDebugPanel(false)}
