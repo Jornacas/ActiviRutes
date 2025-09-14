@@ -70,17 +70,18 @@ function uploadImageToDrive(base64Data, fileName, imageType) {
   try {
     console.log('📤 Subiendo imagen a Google Drive:', fileName, imageType);
     
-    // Obtener o crear la carpeta ActiviRutes
-    const folders = DriveApp.getFoldersByName('ActiviRutes_Entregas');
-    let folder;
+    // Usar tu carpeta específica de Google Drive
+    const FOLDER_ID = '1CubYYXeUuGBXY9pSbWr5DYkEKQZAIPxP';
     
-    if (folders.hasNext()) {
-      folder = folders.next();
-      console.log('📁 Usando carpeta existente: ActiviRutes_Entregas');
-    } else {
-      folder = DriveApp.createFolder('ActiviRutes_Entregas');
-      console.log('📁 Carpeta creada: ActiviRutes_Entregas');
+    try {
+      const folder = DriveApp.getFolderById(FOLDER_ID);
+      console.log('📁 Usando carpeta específica:', folder.getName());
+    } catch (error) {
+      console.error('❌ No se pudo acceder a la carpeta:', FOLDER_ID);
+      throw new Error('Carpeta de destino no accesible: ' + error.toString());
     }
+    
+    const folder = DriveApp.getFolderById(FOLDER_ID);
     
     // Convertir base64 a blob
     const base64 = base64Data.split(',')[1]; // Remover "data:image/...;base64,"

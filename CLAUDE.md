@@ -234,6 +234,17 @@ npm run lint         # Run ESLint
 - ✅ Backward compatibility with existing data formats
 - ✅ Smart handling of large media files (photos/signatures)
 
+### 📁 Google Drive Image Storage Configuration
+
+**Storage Location**: Google Drive Folder ID `1CubYYXeUuGBXY9pSbWr5DYkEKQZAIPxP`
+**Access URL**: https://drive.google.com/drive/folders/1CubYYXeUuGBXY9pSbWr5DYkEKQZAIPxP
+
+**Implementation**:
+- Photos and signatures uploaded automatically to specific Google Drive folder
+- Files named with timestamp: `firma_1234567890.jpg`, `foto_1234567890.jpg`
+- Public viewing links generated and stored in Google Sheets columns 12-13
+- Images accessible from any device via Google Drive URLs
+
 ## Development Patterns
 
 ### State Management
