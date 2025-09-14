@@ -672,13 +672,13 @@ export default function AdminPage() {
                     />
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                      {getStatusIcon(delivery.status)}
-                      <h3 className="font-medium text-gray-900">{delivery.schoolName}</h3>
-                      {getStatusBadge(delivery.status)}
-                      <span className="text-sm text-gray-500">
-                        {new Date(delivery.timestamp).toLocaleDateString('es-ES')} - {new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
+                        {getStatusIcon(delivery.status)}
+                        <h3 className="font-medium text-gray-900">{delivery.schoolName}</h3>
+                        {getStatusBadge(delivery.status)}
+                        <span className="text-sm text-gray-500">
+                          {new Date(delivery.timestamp).toLocaleDateString('es-ES')} - {new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-gray-600">
                       <div className="flex items-center gap-1">
@@ -695,11 +695,12 @@ export default function AdminPage() {
                       </div>
                     </div>
                     
-                    {delivery.notes && (
-                      <p className="text-sm text-gray-600 mt-2 italic">
-                        💬 {delivery.notes}
-                      </p>
-                    )}
+                      {delivery.notes && (
+                        <p className="text-sm text-gray-600 mt-2 italic">
+                          💬 {delivery.notes}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   
                   <div className="flex items-center gap-2 ml-4">
