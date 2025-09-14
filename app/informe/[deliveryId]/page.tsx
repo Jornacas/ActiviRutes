@@ -49,9 +49,73 @@ export default function InformePage() {
         const deliveryData = localStorage.getItem(`delivery_${deliveryId}`)
         if (deliveryData) {
           const parsed = JSON.parse(deliveryData)
-          setDelivery(parsed)
+          
+          // Detectar si son datos comprimidos (nuevo formato) o normales (formato anterior)
+          const isCompressed = parsed.i && parsed.t // Si tiene 'i' y 't' es formato comprimido
+          
+          let normalizedDelivery: DeliveryData
+          
+          if (isCompressed) {
+            // Descomprimir datos del nuevo formato
+            normalizedDelivery = {
+              deliveryId: parsed.i,
+              timestamp: parsed.t,
+              routeId: parsed.r || 'N/A',
+              schoolName: parsed.s || 'Desconocida',
+              schoolAddress: parsed.a || 'Dirección desde ruta compartida',
+              recipientName: parsed.n || '',
+              activities: parsed.c || '',
+              notes: parsed.o || '',
+              signature: parsed.gd || (parsed.g === 'Y' ? 'Disponible en dispositivo original' : undefined),
+              photoUrl: parsed.pd || (parsed.p === 'Y' ? 'Disponible en dispositivo original' : undefined),
+              status: 'completed'
+            }
+            console.log('📦 Datos descomprimidos:', normalizedDelivery)
+          } else {
+            // Formato anterior (compatibilidad) o datos de Google Sheets sincronizados
+            normalizedDelivery = {
+              deliveryId: parsed.deliveryId,
+              timestamp: parsed.timestamp,
+              routeId: parsed.routeId || 'N/A',
+              schoolName: parsed.schoolName || 'Desconocida',
+              schoolAddress: parsed.schoolAddress || '',
+              recipientName: parsed.recipientName || '',
+              activities: parsed.activities || '',
+              notes: parsed.notes || '',
+              signature: parsed.signature,
+              photoUrl: parsed.photoUrl,
+              status: parsed.status || 'completed'
+            }
+            console.log('📄 Datos formato anterior:', normalizedDelivery)
+          }
+          
+          setDelivery(normalizedDelivery)
         } else {
           console.error('Entrega no encontrada:', deliveryId)
+          console.log('🔍 Buscando formatos alternativos...')
+          
+          // Intentar buscar con diferentes formatos de ID
+          const alternativeKeys = [
+            `delivery_del_${deliveryId}`,
+            `delivery_${deliveryId.replace('sheets_', 'del_')}`,
+            deliveryId // En caso de que ya incluya el prefijo
+          ]
+          
+          let found = false
+          for (const altKey of alternativeKeys) {
+            const altData = localStorage.getItem(altKey)
+            if (altData) {
+              console.log(`✅ Encontrado con clave alternativa: ${altKey}`)
+              const parsed = JSON.parse(altData)
+              setDelivery(parsed)
+              found = true
+              break
+            }
+          }
+          
+          if (!found) {
+            console.log('❌ No se encontró la entrega con ningún formato de ID')
+          }
         }
       } catch (error) {
         console.error('Error cargando entrega:', error)
@@ -142,21 +206,62 @@ export default function InformePage() {
   }
 
   const formatDate = (timestamp: string) => {
-    const date = new Date(timestamp)
-    return date.toLocaleDateString('es-ES', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    })
+    if (!timestamp) return 'Fecha no disponible'
+    
+    try {
+      const date = new Date(timestamp)
+      if (isNaN(date.getTime())) {
+        // Intentar parsear diferentes formatos
+        if (timestamp.includes('T')) {
+          const isoDate = new Date(timestamp)
+          if (!isNaN(isoDate.getTime())) {
+            return isoDate.toLocaleDateString('es-ES', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            })
+          }
+        }
+        return `Fecha: ${timestamp}` // Mostrar el valor original si no se puede parsear
+      }
+      
+      return date.toLocaleDateString('es-ES', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+    } catch (error) {
+      console.warn('Error formateando fecha:', error)
+      return `Fecha: ${timestamp}`
+    }
   }
 
   const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString('es-ES', {
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    if (!timestamp) return 'Hora no disponible'
+    
+    try {
+      const date = new Date(timestamp)
+      if (isNaN(date.getTime())) {
+        // Intentar extraer hora si está en formato "FECHA HORA"
+        if (timestamp.includes(' ')) {
+          const timePart = timestamp.split(' ')[1]
+          if (timePart && timePart.includes(':')) {
+            return timePart
+          }
+        }
+        return `Hora: ${timestamp}`
+      }
+      
+      return date.toLocaleTimeString('es-ES', {
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    } catch (error) {
+      console.warn('Error formateando hora:', error)
+      return `Hora: ${timestamp}`
+    }
   }
 
   return (

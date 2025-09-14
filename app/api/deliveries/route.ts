@@ -45,9 +45,38 @@ export async function GET(request: NextRequest) {
       // Estructura esperada: FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME
       const columns = Object.keys(row)
       
+      // Procesar fecha y hora de Google Sheets
+      const dateStr = row[columns[0]] || ''
+      const timeStr = row[columns[1]] || '00:00'
+      
+      let timestamp = new Date().toISOString() // Fallback
+      
+      try {
+        // Intentar diferentes formatos de fecha de Google Sheets
+        if (dateStr && timeStr) {
+          // Formato español DD/MM/YYYY
+          if (dateStr.includes('/')) {
+            const [day, month, year] = dateStr.split('/')
+            const dateObj = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timeStr}`)
+            if (!isNaN(dateObj.getTime())) {
+              timestamp = dateObj.toISOString()
+            }
+          }
+          // Formato ISO YYYY-MM-DD
+          else if (dateStr.includes('-')) {
+            const dateObj = new Date(`${dateStr}T${timeStr}`)
+            if (!isNaN(dateObj.getTime())) {
+              timestamp = dateObj.toISOString()
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Error procesando fecha de Google Sheets:', error)
+      }
+
       return {
         deliveryId: `sheets_${row.rowIndex}`, // ID temporal basado en fila
-        timestamp: `${row[columns[0]] || ''}T${row[columns[1]] || '00:00'}`, // Combinar fecha y hora
+        timestamp: timestamp,
         routeId: row[columns[2]] || 'N/A',
         schoolName: row[columns[3]] || 'Desconocida',
         schoolAddress: row[columns[4]] || '',
