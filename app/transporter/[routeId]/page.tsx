@@ -685,12 +685,23 @@ export default function TransporterApp() {
 
   // Función para manejar la entrega de un item
   const handleDeliver = async (itemId: string, recipientName: string, notes: string) => {
-    // Encontrar los datos del item para incluir información completa
-    const item = routeItems.find(item => item.id === itemId)
-    if (!item) return
+    try {
+      console.log('🚚 === INICIANDO ENTREGA ===')
+      console.log('📦 Item ID:', itemId)
+      console.log('👤 Receptor:', recipientName)
+      
+      // Encontrar los datos del item para incluir información completa
+      const item = routeItems.find(item => item.id === itemId)
+      if (!item) {
+        console.error('❌ Item no encontrado:', itemId)
+        alert('Error: No se encontró el item para entregar')
+        return
+      }
 
-    // Generar ID único para la entrega e informe
-    const deliveryId = `delivery_${Date.now()}_${itemId.slice(-4)}`
+      // Generar ID único para la entrega e informe (simplificado)
+      const timestamp = Date.now()
+      const deliveryId = `del_${timestamp}`
+      console.log('🆔 ID generado:', deliveryId)
     
     const newDeliveryData: DeliveryData = {
       deliveryId, // NUEVO: ID único para la entrega
@@ -709,28 +720,40 @@ export default function TransporterApp() {
     }
 
     // Guardar datos completos para el informe individual (NUEVO)
-    localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(newDeliveryData))
-    console.log('📄 Informe individual guardado:', `delivery_${deliveryId}`)
+    try {
+      localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(newDeliveryData))
+      console.log('📄 Informe individual guardado:', `delivery_${deliveryId}`)
+    } catch (storageError) {
+      console.warn('⚠️ Error guardando informe individual:', storageError)
+    }
 
     // Guardar localmente inmediatamente (mantener para compatibilidad)
-    setDeliveryStatus(prevStatus => {
-      const updatedStatus = { ...prevStatus, [itemId]: newDeliveryData }
-      localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(updatedStatus))
-      console.log("Estado de entrega guardado localmente:", updatedStatus)
-      return updatedStatus
-    })
+    try {
+      setDeliveryStatus(prevStatus => {
+        const updatedStatus = { ...prevStatus, [itemId]: newDeliveryData }
+        localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(updatedStatus))
+        console.log("Estado de entrega guardado localmente:", updatedStatus)
+        return updatedStatus
+      })
+    } catch (storageError) {
+      console.warn('⚠️ Error guardando estado local:', storageError)
+    }
 
     // NUEVO: Disparar evento para el panel Admin
-    const deliveryEvent = new CustomEvent('deliveryCompleted', {
-      detail: {
-        deliveryId,
-        schoolName: item.name,
-        timestamp: newDeliveryData.timestamp,
-        status: 'completed'
-      }
-    })
-    window.dispatchEvent(deliveryEvent)
-    console.log('🔔 Evento de entrega disparado para Admin')
+    try {
+      const deliveryEvent = new CustomEvent('deliveryCompleted', {
+        detail: {
+          deliveryId,
+          schoolName: item.name,
+          timestamp: newDeliveryData.timestamp,
+          status: 'completed'
+        }
+      })
+      window.dispatchEvent(deliveryEvent)
+      console.log('🔔 Evento de entrega disparado para Admin')
+    } catch (eventError) {
+      console.warn('⚠️ Error disparando evento:', eventError)
+    }
 
     // Limpiar formulario y cerrar
     setExpandedItemId(null)
@@ -757,7 +780,12 @@ export default function TransporterApp() {
     } finally {
       setSendingToSheets(null)
     }
+  } catch (error) {
+    console.error('❌ Error en handleDeliver:', error)
+    alert('Error procesando la entrega. Revisa la consola para más detalles.')
+    setSendingToSheets(null)
   }
+}
 
   // Funciones para reordenar items
   const moveItemUp = (index: number) => {
