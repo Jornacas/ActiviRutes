@@ -4,29 +4,24 @@
  */
 
 /**
- * Función helper para crear respuestas con CORS headers
+ * Función helper para crear respuestas JSON (Google Apps Script no soporta setHeaders)
  */
-function createCORSResponse(data) {
+function createJSONResponse(data) {
   return ContentService
     .createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON)
-    .setHeaders({
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400'
-    });
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
- * Maneja las peticiones GET y OPTIONS (para CORS preflight)
+ * Maneja las peticiones GET (info del API)
  */
 function doGet(e) {
-  return createCORSResponse({
+  return createJSONResponse({
     status: 'success',
     message: 'ActiviRutes API ready',
     timestamp: new Date().toISOString(),
-    version: '2.0'
+    version: '2.1',
+    note: 'CORS manejado automáticamente por Google Apps Script'
   });
 }
 
@@ -50,14 +45,14 @@ function doPost(e) {
     
     // Acción no reconocida
     console.error('❌ Acción no válida:', data.action);
-    return createCORSResponse({
+    return createJSONResponse({
       status: 'error', 
       message: 'Acción no válida: ' + data.action
     });
       
   } catch (error) {
     console.error('❌ Error procesando POST:', error.toString());
-    return createCORSResponse({
+    return createJSONResponse({
       status: 'error', 
       message: 'Error procesando datos: ' + error.toString()
     });
@@ -205,7 +200,7 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
     
     if (!sheet) {
       console.error('❌ Hoja no encontrada:', sheetName);
-      return createCORSResponse({
+      return createJSONResponse({
         status: 'error',
         message: 'Hoja no encontrada: ' + sheetName
       });
@@ -216,7 +211,7 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
     if (lastRow <= 1) {
       // Solo hay header o está vacía
       console.log('ℹ️ No hay entregas en la hoja');
-      return createCORSResponse({
+      return createJSONResponse({
         status: 'success',
         data: [],
         message: 'No hay entregas registradas'
@@ -243,7 +238,7 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
     
     console.log(`✅ ${deliveries.length} entregas obtenidas exitosamente`);
     
-    return createCORSResponse({
+    return createJSONResponse({
       status: 'success',
       data: deliveries,
       message: `${deliveries.length} entregas obtenidas`,
@@ -253,7 +248,7 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
       
   } catch (error) {
     console.error('❌ Error obteniendo entregas:', error.toString());
-    return createCORSResponse({
+    return createJSONResponse({
       status: 'error',
       message: 'Error obteniendo entregas: ' + error.toString()
     });

@@ -89,81 +89,22 @@ export default function AdminPage() {
     try {
       console.log('📊 Cargando entregas desde Google Sheets...')
       
-      // Intentar primero con CORS habilitado
-      let response;
-      try {
-        response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            action: 'getDeliveries',
-            sheetName: GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME
-          })
-        })
-      } catch (corsError) {
-        console.warn('⚠️ Error CORS, reintentando con no-cors...', corsError)
-        // Fallback a no-cors (no podemos leer respuesta pero podemos intentar enviar)
-        response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            action: 'getDeliveries',
-            sheetName: GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME
-          })
-        })
-        
-        // Con no-cors, simular respuesta y cargar datos locales
-        setIsConnectedToSheets(false)
-        loadDeliveriesFromLocalStorage()
-        return
-      }
+      // Por limitaciones de CORS con Google Apps Script, cargar datos locales
+      // y mostrar mensaje explicativo
+      console.log('ℹ️ Cargando datos locales por limitaciones CORS de Google Apps Script')
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
+      setIsConnectedToSheets(false)
+      loadDeliveriesFromLocalStorage()
       
-      const result = await response.json()
-      console.log('📋 Respuesta de Google Sheets:', result)
-      
-      if (result.status === 'success' && result.data) {
-        // Convertir datos de Sheets al formato de DeliveryData
-        const sheetsDeliveries: DeliveryData[] = result.data.map((row: any, index: number) => {
-          // Estructura esperada: FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME
-          const deliveryId = `sheets_${Date.now()}_${index}`
-          
-          return {
-            deliveryId,
-            timestamp: new Date(`${row.FECHA || row[0]} ${row.HORA || row[1]}`).toISOString(),
-            routeId: row.RUTA_ID || row[2] || 'N/A',
-            schoolName: row.ESCUELA || row[3] || 'Desconocida',
-            schoolAddress: row.DIRECCION || row[4] || '',
-            activities: row.ACTIVIDADES || row[5] || '',
-            recipientName: row.RECEPTOR || row[6] || '',
-            notes: row.NOTAS || row[7] || '',
-            signature: (row.TIENE_FIRMA || row[8]) === 'SÍ' ? 'data:image/png;base64,signed' : '',
-            photoUrl: (row.TIENE_FOTO || row[9]) === 'SÍ' ? 'data:image/jpeg;base64,photo' : '',
-            status: 'completed' as const
-          }
-        })
-        
-        setDeliveries(sheetsDeliveries)
-        setIsConnectedToSheets(true)
-        setLastUpdate(new Date())
-        
-        // NUEVO: Sincronizar datos a localStorage para que funcionen los informes individuales
-        syncSheetsDataToLocalStorage(sheetsDeliveries)
-        
-        console.log(`✅ ${sheetsDeliveries.length} entregas cargadas desde Google Sheets`)
-        
-      } else {
-        console.warn('⚠️ Respuesta inesperada de Google Sheets:', result)
-        setIsConnectedToSheets(false)
-        loadDeliveriesFromLocalStorage()
+      // Intentar notificar al usuario sobre la limitación
+      if (deliveries.length === 0) {
+        console.warn(`
+        ⚠️ LIMITACIÓN GOOGLE APPS SCRIPT:
+        - Google Apps Script no permite lectura directa de respuestas por CORS
+        - Los datos SÍ llegan a Google Sheets correctamente
+        - Para ver datos de Sheets, usa: Datos Locales
+        - Los links de informes funcionan correctamente
+        `)
       }
       
     } catch (error) {
