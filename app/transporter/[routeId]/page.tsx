@@ -596,22 +596,31 @@ export default function TransporterApp() {
   const [debugLogs, setDebugLogs] = useState<string[]>([])
   const [showDebugPanel, setShowDebugPanel] = useState(false)
 
-  // Función para añadir logs al panel de debug
+  // Función para añadir logs al panel de debug - ULTRA PROTEGIDA
   const addDebugLog = (message: string) => {
     try {
       const timestamp = new Date().toLocaleTimeString('es-ES')
       const logEntry = `${timestamp}: ${message}`
       console.log(logEntry) // También log normal
       
-      // Guardar en localStorage también para persistencia
-      const existingLogs = localStorage.getItem('debugLogs_activirutes') || '[]'
-      const logs = JSON.parse(existingLogs)
-      logs.unshift(logEntry)
-      localStorage.setItem('debugLogs_activirutes', JSON.stringify(logs.slice(0, 50)))
+      // Guardar en localStorage también para persistencia - CON PROTECCIÓN
+      try {
+        if (typeof Storage !== 'undefined' && localStorage) {
+          const existingLogs = localStorage.getItem('debugLogs_activirutes') || '[]'
+          const logs = JSON.parse(existingLogs)
+          logs.unshift(logEntry)
+          localStorage.setItem('debugLogs_activirutes', JSON.stringify(logs.slice(0, 50)))
+        }
+      } catch (storageError) {
+        console.warn('Error guardando debug logs en localStorage:', storageError)
+      }
       
+      // Actualizar estado siempre, aunque localStorage falle
       setDebugLogs(prev => [logEntry, ...prev].slice(0, 50)) // Mantener solo últimos 50
     } catch (error) {
       console.error('Error en addDebugLog:', error)
+      // Fallback extremo - al menos mostrar en console
+      console.log(`[FALLBACK] ${message}`)
     }
   }
 
@@ -775,42 +784,73 @@ export default function TransporterApp() {
       notes: notes
     }
 
-    // Guardar datos completos para el informe individual (NUEVO)
+    // Guardar datos completos para el informe individual (NUEVO) - CON PROTECCIÓN MÓVIL
     try {
       addDebugLog('💾 Intentando guardar informe individual...')
-      localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(newDeliveryData))
-      addDebugLog(`✅ Informe individual guardado: delivery_${deliveryId}`)
+      // Verificar disponibilidad de localStorage
+      if (typeof Storage !== 'undefined' && localStorage) {
+        localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(newDeliveryData))
+        addDebugLog(`✅ Informe individual guardado: delivery_${deliveryId}`)
+      } else {
+        addDebugLog('⚠️ localStorage no disponible, saltando guardado individual')
+      }
     } catch (storageError) {
       addDebugLog(`❌ Error guardando informe individual: ${storageError}`)
+      addDebugLog('⚠️ Continuando sin guardado individual...')
     }
 
-    // Guardar localmente inmediatamente (mantener para compatibilidad)
+    // Guardar localmente inmediatamente (mantener para compatibilidad) - CON PROTECCIÓN MÓVIL
     try {
       addDebugLog('💾 Intentando actualizar estado local...')
-      setDeliveryStatus(prevStatus => {
-        const updatedStatus = { ...prevStatus, [itemId]: newDeliveryData }
-        localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(updatedStatus))
-        addDebugLog(`✅ Estado local actualizado para ruta: ${routeId}`)
-        return updatedStatus
-      })
+      if (typeof Storage !== 'undefined' && localStorage) {
+        setDeliveryStatus(prevStatus => {
+          try {
+            const updatedStatus = { ...prevStatus, [itemId]: newDeliveryData }
+            localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(updatedStatus))
+            addDebugLog(`✅ Estado local actualizado para ruta: ${routeId}`)
+            return updatedStatus
+          } catch (innerStorageError) {
+            addDebugLog(`❌ Error interno localStorage: ${innerStorageError}`)
+            return { ...prevStatus, [itemId]: newDeliveryData } // Al menos actualizar el estado
+          }
+        })
+      } else {
+        // Fallback: solo actualizar el estado sin localStorage
+        addDebugLog('⚠️ localStorage no disponible, solo actualizando estado')
+        setDeliveryStatus(prevStatus => ({ ...prevStatus, [itemId]: newDeliveryData }))
+      }
     } catch (storageError) {
       addDebugLog(`❌ Error guardando estado local: ${storageError}`)
+      addDebugLog('⚠️ Intentando solo actualizar estado...')
+      try {
+        setDeliveryStatus(prevStatus => ({ ...prevStatus, [itemId]: newDeliveryData }))
+        addDebugLog('✅ Estado actualizado sin localStorage')
+      } catch (stateError) {
+        addDebugLog(`❌ ERROR CRÍTICO actualizando estado: ${stateError}`)
+      }
     }
 
-    // NUEVO: Disparar evento para el panel Admin
+    // NUEVO: Disparar evento para el panel Admin - CON PROTECCIÓN MÓVIL
     try {
-      const deliveryEvent = new CustomEvent('deliveryCompleted', {
-        detail: {
-          deliveryId,
-          schoolName: item.name,
-          timestamp: newDeliveryData.timestamp,
-          status: 'completed'
-        }
-      })
-      window.dispatchEvent(deliveryEvent)
-      console.log('🔔 Evento de entrega disparado para Admin')
+      addDebugLog('🔔 Intentando disparar evento para Admin...')
+      // Verificar soporte de CustomEvent
+      if (typeof CustomEvent !== 'undefined' && window.dispatchEvent) {
+        const deliveryEvent = new CustomEvent('deliveryCompleted', {
+          detail: {
+            deliveryId,
+            schoolName: item.name,
+            timestamp: newDeliveryData.timestamp,
+            status: 'completed'
+          }
+        })
+        window.dispatchEvent(deliveryEvent)
+        addDebugLog('✅ Evento de entrega disparado para Admin')
+      } else {
+        addDebugLog('⚠️ CustomEvent no soportado, saltando evento Admin')
+      }
     } catch (eventError) {
-      console.warn('⚠️ Error disparando evento:', eventError)
+      addDebugLog(`❌ Error disparando evento: ${eventError}`)
+      addDebugLog('⚠️ Continuando sin evento Admin...')
     }
 
     // Limpiar formulario y cerrar
@@ -841,8 +881,20 @@ export default function TransporterApp() {
   } catch (error) {
     addDebugLog(`❌ ERROR CRÍTICO en handleDeliver: ${error}`)
     addDebugLog(`📋 Detalles del error: ${JSON.stringify(error)}`)
+    addDebugLog(`📍 Stack trace: ${error instanceof Error ? error.stack?.slice(0, 200) : 'N/A'}`)
     addDebugLog('❌ Entrega cancelada por error')
-    setSendingToSheets(null)
+    
+    // PROTECCIÓN CRÍTICA: Intentar al menos limpiar el estado
+    try {
+      setSendingToSheets(null)
+      setExpandedItemId(null)
+      addDebugLog('🔄 Estado limpiado después de error')
+    } catch (cleanupError) {
+      addDebugLog(`❌ Error incluso limpiando estado: ${cleanupError}`)
+    }
+    
+    // Mostrar error al usuario de forma no invasiva
+    console.error('ERROR CRÍTICO en handleDeliver:', error)
   }
 }
 
@@ -1190,9 +1242,34 @@ export default function TransporterApp() {
                         <div className="flex gap-2 pt-2">
                           <Button 
                             onClick={() => {
-                              const recipientInput = document.getElementById(`recipient-${item.id}`) as HTMLInputElement
-                              const notesInput = document.getElementById(`notes-${item.id}`) as HTMLTextAreaElement
-                              handleDeliver(item.id, recipientInput.value, notesInput.value)
+                              // PROTECCIÓN MÓVIL: Verificar elementos DOM antes de acceder
+                              try {
+                                addDebugLog('🔘 Usuario presionó Confirmar Entrega')
+                                const recipientInput = document.getElementById(`recipient-${item.id}`) as HTMLInputElement
+                                const notesInput = document.getElementById(`notes-${item.id}`) as HTMLTextAreaElement
+                                
+                                if (!recipientInput || !notesInput) {
+                                  addDebugLog(`❌ ERROR: No se encontraron elementos DOM`)
+                                  addDebugLog(`🔍 Receptor input: ${!!recipientInput}, Notas input: ${!!notesInput}`)
+                                  throw new Error('Elementos del formulario no encontrados')
+                                }
+                                
+                                const recipientValue = recipientInput.value || ''
+                                const notesValue = notesInput.value || ''
+                                addDebugLog(`📝 Valores capturados - Receptor: "${recipientValue}", Notas: "${notesValue}"`)
+                                
+                                handleDeliver(item.id, recipientValue, notesValue)
+                              } catch (domError) {
+                                addDebugLog(`❌ ERROR CRÍTICO accediendo al DOM: ${domError}`)
+                                addDebugLog('🚨 Esto puede causar la excepción del cliente')
+                                console.error('Error crítico en onClick:', domError)
+                                // Intentar con valores por defecto para evitar crash total
+                                try {
+                                  handleDeliver(item.id, 'Receptor no especificado', 'Error capturando datos del formulario')
+                                } catch (fallbackError) {
+                                  addDebugLog(`❌ ERROR en fallback: ${fallbackError}`)
+                                }
+                              }
                             }}
                             className="flex-1 bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-400"
                             disabled={sendingToSheets === item.id}
