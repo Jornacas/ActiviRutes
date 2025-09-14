@@ -400,9 +400,8 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
       {!photo && (
         <div className="space-y-2">
           {/* MÉTODO SIMPLE: Captura directa de cámara */}
-          <Button type="button" onClick={openCameraCapture} className="w-full bg-green-600 hover:bg-green-700 text-white">
-            <Camera className="h-4 w-4 mr-2" />
-            📷 Tomar Foto (Método Simple)
+          <Button type="button" onClick={openCameraCapture} variant="outline" className="w-full">
+            Tomar Foto
           </Button>
           
           <div className="flex gap-2">
@@ -416,7 +415,7 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
           </div>
           
           <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
-            💡 <strong>Método Simple:</strong> Al tocar "Tomar Foto" se abrirá directamente la cámara de tu smartphone para disparar una foto.
+            💡 <strong>Instrucciones:</strong> Al tocar "Tomar Foto" se abrirá la cámara de tu smartphone. La foto se almacena temporalmente en la aplicación y se enviará junto con la entrega.
           </div>
           
           {showCameraError && (
