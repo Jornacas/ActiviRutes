@@ -321,6 +321,38 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
     fileInputRef.current?.click()
   }
 
+  // MÉTODO SIMPLE: Captura directa de cámara sin video preview
+  const openCameraCapture = () => {
+    console.log('📷 === CAPTURA DIRECTA DE CÁMARA ===')
+    
+    // Crear input temporal con captura directa de cámara
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.capture = 'environment' // Fuerza usar cámara trasera
+    
+    input.onchange = (event) => {
+      const file = (event.target as HTMLInputElement).files?.[0]
+      if (file) {
+        console.log('✅ Foto capturada:', file)
+        
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          const photoData = e.target?.result as string
+          if (photoData) {
+            console.log('✅ Foto convertida a base64')
+            setPhoto(photoData)
+            onPhotoTaken(photoData)
+          }
+        }
+        reader.readAsDataURL(file)
+      }
+    }
+    
+    // Activar la captura
+    input.click()
+  }
+
   // Función de diagnóstico de cámara
   const diagnosticCamera = async () => {
     try {
@@ -365,20 +397,15 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
   return (
     <div className="space-y-3">
-      {!photo && !cameraActive && (
+      {!photo && (
         <div className="space-y-2">
-          <Button type="button" onClick={startCamera} variant="outline" className="w-full">
+          {/* MÉTODO SIMPLE: Captura directa de cámara */}
+          <Button type="button" onClick={openCameraCapture} className="w-full bg-green-600 hover:bg-green-700 text-white">
             <Camera className="h-4 w-4 mr-2" />
-            Tomar foto con cámara
+            📷 Tomar Foto (Método Simple)
           </Button>
           
           <div className="flex gap-2">
-            {!cameraActive && showCameraError && (
-              <Button type="button" onClick={startCamera} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">
-                <Camera className="h-4 w-4 mr-2" />
-                Reintentar Cámara
-              </Button>
-            )}
             <Button type="button" onClick={openFileSelector} variant="outline" className="flex-1">
               <Package className="h-4 w-4 mr-2" />
               Subir desde Galería
@@ -386,6 +413,10 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
             <Button type="button" onClick={diagnosticCamera} variant="ghost" className="px-3">
               🔍
             </Button>
+          </div>
+          
+          <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
+            💡 <strong>Método Simple:</strong> Al tocar "Tomar Foto" se abrirá directamente la cámara de tu smartphone para disparar una foto.
           </div>
           
           {showCameraError && (
@@ -411,36 +442,7 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
         </div>
       )}
 
-      {cameraActive && (
-        <div className="space-y-2">
-          <div className="relative">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-64 rounded-lg border bg-black"
-            />
-            {/* Overlay simple con información */}
-            <div className="absolute top-2 left-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
-              📹 Cámara activa - Toca "Capturar Foto" cuando esté lista
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button type="button" onClick={takePhoto} className="flex-1 bg-green-600 hover:bg-green-700">
-              <Camera className="h-4 w-4 mr-2" />
-              Capturar Foto
-            </Button>
-            <Button type="button" onClick={stopCamera} variant="outline">
-              <X className="h-4 w-4 mr-2" />
-              Cerrar Cámara
-            </Button>
-          </div>
-          <p className="text-xs text-gray-600 text-center">
-            Si ves pantalla negra, espera unos segundos o usa "Subir desde Galería"
-          </p>
-        </div>
-      )}
+      {/* Ya no necesitamos la parte compleja del video */}
 
       {photo && (
         <div className="space-y-2">
