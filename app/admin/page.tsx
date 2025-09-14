@@ -128,9 +128,30 @@ export default function AdminPage() {
       deliveryKeys.forEach(key => {
         try {
           const deliveryData = JSON.parse(localStorage.getItem(key) || '{}')
-          if (deliveryData.deliveryId) {
-            // Normalizar datos para compatibilidad
-            const normalizedDelivery: DeliveryData = {
+          
+          // Detectar si son datos comprimidos (nuevo formato) o normales (formato anterior)
+          const isCompressed = deliveryData.i && deliveryData.t // Si tiene 'i' y 't' es formato comprimido
+          
+          let normalizedDelivery: DeliveryData
+          
+          if (isCompressed) {
+            // Descomprimir datos del nuevo formato
+            normalizedDelivery = {
+              deliveryId: deliveryData.i,
+              timestamp: deliveryData.t,
+              routeId: deliveryData.r || 'N/A',
+              schoolName: deliveryData.s || 'Desconocida',
+              schoolAddress: deliveryData.a || '',
+              recipientName: deliveryData.n || '',
+              activities: deliveryData.c || '',
+              notes: deliveryData.o || '',
+              signature: deliveryData.gd || (deliveryData.g === 'Y' ? 'Disponible' : undefined),
+              photoUrl: deliveryData.pd || (deliveryData.p === 'Y' ? 'Disponible' : undefined),
+              status: 'completed'
+            }
+          } else if (deliveryData.deliveryId) {
+            // Formato anterior (compatibilidad)
+            normalizedDelivery = {
               deliveryId: deliveryData.deliveryId,
               timestamp: deliveryData.timestamp,
               routeId: deliveryData.routeId || 'N/A',
@@ -141,10 +162,13 @@ export default function AdminPage() {
               notes: deliveryData.notes || '',
               signature: deliveryData.signature,
               photoUrl: deliveryData.photoUrl,
-              status: 'completed' // Las entregas guardadas están completadas
+              status: 'completed'
             }
-            loadedDeliveries.push(normalizedDelivery)
+          } else {
+            return // Saltar si no tiene formato válido
           }
+          
+          loadedDeliveries.push(normalizedDelivery)
         } catch (error) {
           console.warn(`Error cargando entrega ${key}:`, error)
         }

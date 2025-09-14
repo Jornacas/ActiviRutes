@@ -784,13 +784,82 @@ export default function TransporterApp() {
       notes: notes
     }
 
-    // Guardar datos completos para el informe individual (NUEVO) - CON PROTECCIÓN MÓVIL
+    // Guardar datos completos para el informe individual (NUEVO) - CON PROTECCIÓN MÓVIL Y LIMPIEZA AUTOMÁTICA
     try {
       addDebugLog('💾 Intentando guardar informe individual...')
       // Verificar disponibilidad de localStorage
       if (typeof Storage !== 'undefined' && localStorage) {
-        localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(newDeliveryData))
-        addDebugLog(`✅ Informe individual guardado: delivery_${deliveryId}`)
+        try {
+          // Comprimir datos para ahorrar espacio
+          const compressedData = {
+            i: deliveryId, // id
+            t: newDeliveryData.timestamp, // timestamp
+            r: newDeliveryData.routeId, // route
+            s: newDeliveryData.schoolName, // school
+            a: newDeliveryData.schoolAddress, // address
+            n: newDeliveryData.recipientName, // name
+            c: newDeliveryData.activities, // activities
+            o: newDeliveryData.notes, // notes
+            g: newDeliveryData.signature ? 'Y' : 'N', // signature exists
+            p: newDeliveryData.photoUrl ? 'Y' : 'N', // photo exists
+            // Solo guardar firmas y fotos si son pequeñas
+            gd: newDeliveryData.signature && newDeliveryData.signature.length < 50000 ? newDeliveryData.signature : undefined,
+            pd: newDeliveryData.photoUrl && newDeliveryData.photoUrl.length < 100000 ? newDeliveryData.photoUrl : undefined
+          }
+          
+          localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(compressedData))
+          addDebugLog(`✅ Informe individual guardado (comprimido): delivery_${deliveryId}`)
+        } catch (quotaError) {
+          if (quotaError.name === 'QuotaExceededError') {
+            addDebugLog('🧹 CUOTA EXCEDIDA - Iniciando limpieza automática...')
+            
+            // Limpiar datos antiguos automáticamente
+            const allKeys = Object.keys(localStorage)
+            const deliveryKeys = allKeys.filter(key => key.startsWith('delivery_'))
+            
+            if (deliveryKeys.length > 10) {
+              // Ordenar por fecha y eliminar los más antiguos
+              const deliveriesWithDates = deliveryKeys.map(key => {
+                try {
+                  const data = JSON.parse(localStorage.getItem(key) || '{}')
+                  return { key, timestamp: data.t || data.timestamp || '0' }
+                } catch {
+                  return { key, timestamp: '0' }
+                }
+              }).sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+              
+              // Eliminar los 5 más antiguos
+              const toDelete = deliveriesWithDates.slice(0, 5)
+              toDelete.forEach(item => {
+                localStorage.removeItem(item.key)
+                addDebugLog(`🗑️ Eliminado: ${item.key}`)
+              })
+              
+              addDebugLog(`🧹 Limpieza completada: ${toDelete.length} entregas eliminadas`)
+              
+              // Intentar guardar de nuevo
+              try {
+                const compressedData = {
+                  i: deliveryId,
+                  t: newDeliveryData.timestamp,
+                  r: newDeliveryData.routeId,
+                  s: newDeliveryData.schoolName,
+                  n: newDeliveryData.recipientName,
+                  c: newDeliveryData.activities,
+                  o: newDeliveryData.notes
+                }
+                localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(compressedData))
+                addDebugLog(`✅ Guardado exitoso después de limpieza`)
+              } catch (retryError) {
+                addDebugLog(`❌ Error después de limpieza: ${retryError}`)
+              }
+            } else {
+              addDebugLog('⚠️ Pocos registros para limpiar, saltando guardado')
+            }
+          } else {
+            throw quotaError
+          }
+        }
       } else {
         addDebugLog('⚠️ localStorage no disponible, saltando guardado individual')
       }
@@ -799,15 +868,56 @@ export default function TransporterApp() {
       addDebugLog('⚠️ Continuando sin guardado individual...')
     }
 
-    // Guardar localmente inmediatamente (mantener para compatibilidad) - CON PROTECCIÓN MÓVIL
+    // Guardar localmente inmediatamente (mantener para compatibilidad) - CON PROTECCIÓN MÓVIL Y OPTIMIZACIÓN
     try {
       addDebugLog('💾 Intentando actualizar estado local...')
       if (typeof Storage !== 'undefined' && localStorage) {
         setDeliveryStatus(prevStatus => {
           try {
             const updatedStatus = { ...prevStatus, [itemId]: newDeliveryData }
-            localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(updatedStatus))
-            addDebugLog(`✅ Estado local actualizado para ruta: ${routeId}`)
+            
+            // OPTIMIZACIÓN: Solo guardar datos esenciales en el estado de ruta
+            const lightweightStatus = { ...prevStatus }
+            lightweightStatus[itemId] = {
+              ...newDeliveryData,
+              // Eliminar datos pesados para ahorrar espacio
+              signature: newDeliveryData.signature ? 'Y' : undefined,
+              photoUrl: newDeliveryData.photoUrl ? 'Y' : undefined
+            }
+            
+            try {
+              localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(lightweightStatus))
+              addDebugLog(`✅ Estado local actualizado (optimizado) para ruta: ${routeId}`)
+            } catch (quotaError) {
+              if (quotaError.name === 'QuotaExceededError') {
+                addDebugLog('🧹 CUOTA EXCEDIDA en estado - Limpiando rutas antiguas...')
+                
+                // Limpiar estados de rutas antiguas
+                const allKeys = Object.keys(localStorage)
+                const routeKeys = allKeys.filter(key => key.startsWith('deliveryStatus_'))
+                
+                if (routeKeys.length > 3) {
+                  // Eliminar todas las rutas menos la actual
+                  routeKeys.forEach(key => {
+                    if (key !== `deliveryStatus_${routeId}`) {
+                      localStorage.removeItem(key)
+                      addDebugLog(`🗑️ Ruta eliminada: ${key}`)
+                    }
+                  })
+                  
+                  // Intentar guardar de nuevo con solo datos mínimos
+                  const minimalStatus = { [itemId]: { 
+                    deliveryId, 
+                    timestamp: newDeliveryData.timestamp, 
+                    status: 'delivered',
+                    recipientName: newDeliveryData.recipientName 
+                  }}
+                  localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(minimalStatus))
+                  addDebugLog(`✅ Estado guardado (mínimo) después de limpieza`)
+                }
+              }
+            }
+            
             return updatedStatus
           } catch (innerStorageError) {
             addDebugLog(`❌ Error interno localStorage: ${innerStorageError}`)
