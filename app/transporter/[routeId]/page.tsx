@@ -35,6 +35,7 @@ const GOOGLE_SHEETS_CONFIG = {
 
 // Tipo para los datos de entrega que se guardarán localmente y en Sheets
 interface DeliveryData {
+  deliveryId?: string // NUEVO: ID único para la entrega e informe
   routeId: string
   itemId: string
   recipientName: string
@@ -47,6 +48,7 @@ interface DeliveryData {
   activities?: string
   deliveryDay?: string
   notes?: string // Comentarios adicionales
+  reportUrl?: string // NUEVO: URL del informe individual
 }
 
 // Componente para firma digital
@@ -462,7 +464,7 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData): Promise<boolean> => {
   try {
     // Estructura de datos para la hoja "Entregas":
-    // FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO
+    // FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME
     const formattedDate = new Date(deliveryData.timestamp).toLocaleDateString('es-ES')
     const formattedTime = new Date(deliveryData.timestamp).toLocaleTimeString('es-ES', { 
       hour: '2-digit', 
@@ -479,7 +481,8 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData): Promise<b
       deliveryData.recipientName || '',
       deliveryData.notes || '',
       deliveryData.signature ? 'SÍ' : 'NO',
-      deliveryData.photoUrl ? 'SÍ' : 'NO'
+      deliveryData.photoUrl ? 'SÍ' : 'NO',
+      deliveryData.reportUrl || '' // NUEVO: Link del informe con fotos
     ]
 
     // Intentar envío real usando Google Apps Script Web App (método más simple)
@@ -686,7 +689,11 @@ export default function TransporterApp() {
     const item = routeItems.find(item => item.id === itemId)
     if (!item) return
 
+    // Generar ID único para la entrega e informe
+    const deliveryId = `delivery_${Date.now()}_${itemId.slice(-4)}`
+    
     const newDeliveryData: DeliveryData = {
+      deliveryId, // NUEVO: ID único para la entrega
       routeId,
       itemId,
       recipientName,
@@ -701,7 +708,11 @@ export default function TransporterApp() {
       notes: notes
     }
 
-    // Guardar localmente inmediatamente
+    // Guardar datos completos para el informe individual (NUEVO)
+    localStorage.setItem(`delivery_${deliveryId}`, JSON.stringify(newDeliveryData))
+    console.log('📄 Informe individual guardado:', `delivery_${deliveryId}`)
+
+    // Guardar localmente inmediatamente (mantener para compatibilidad)
     setDeliveryStatus(prevStatus => {
       const updatedStatus = { ...prevStatus, [itemId]: newDeliveryData }
       localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(updatedStatus))
@@ -709,17 +720,35 @@ export default function TransporterApp() {
       return updatedStatus
     })
 
+    // NUEVO: Disparar evento para el panel Admin
+    const deliveryEvent = new CustomEvent('deliveryCompleted', {
+      detail: {
+        deliveryId,
+        schoolName: item.name,
+        timestamp: newDeliveryData.timestamp,
+        status: 'completed'
+      }
+    })
+    window.dispatchEvent(deliveryEvent)
+    console.log('🔔 Evento de entrega disparado para Admin')
+
     // Limpiar formulario y cerrar
     setExpandedItemId(null)
     setSignatures(prev => ({ ...prev, [itemId]: '' }))
     setPhotos(prev => ({ ...prev, [itemId]: '' }))
 
-    // Enviar a Google Sheets en segundo plano
+    // Enviar a Google Sheets en segundo plano (MODIFICADO: incluir link del informe)
     setSendingToSheets(itemId)
     try {
-      const success = await sendDeliveryToGoogleSheets(newDeliveryData)
+      // Crear datos para Google Sheets con link del informe
+      const deliveryDataWithReport = {
+        ...newDeliveryData,
+        reportUrl: `${window.location.origin}/informe/${deliveryId}` // NUEVO: Link del informe
+      }
+      
+      const success = await sendDeliveryToGoogleSheets(deliveryDataWithReport)
       if (success) {
-        console.log("✅ Entrega registrada en Google Sheets")
+        console.log("✅ Entrega registrada en Google Sheets con link del informe")
       } else {
         console.log("⚠️ No se pudo registrar en Google Sheets, pero se guardó localmente")
       }

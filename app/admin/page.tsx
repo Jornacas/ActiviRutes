@@ -1,0 +1,485 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { 
+  RefreshCw, 
+  Search, 
+  Eye, 
+  Copy, 
+  Trash2, 
+  Download,
+  Calendar,
+  MapPin,
+  User,
+  Package,
+  CheckCircle2,
+  Clock,
+  AlertCircle
+} from "lucide-react"
+
+// Tipos para las entregas
+interface DeliveryData {
+  deliveryId: string
+  timestamp: string
+  routeId: string
+  schoolName: string
+  schoolAddress: string
+  recipientName: string
+  activities: string
+  notes: string
+  signature?: string
+  photoUrl?: string
+  status: 'completed' | 'in-progress' | 'pending'
+}
+
+interface DeliveryIndex {
+  [deliveryId: string]: {
+    timestamp: string
+    status: string
+    schoolName: string
+    quickPreview: string
+  }
+}
+
+export default function AdminPage() {
+  const [deliveries, setDeliveries] = useState<DeliveryData[]>([])
+  const [filteredDeliveries, setFilteredDeliveries] = useState<DeliveryData[]>([])
+  const [searchTerm, setSearchTerm] = useState("")
+  const [selectedDate, setSelectedDate] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [isLoading, setIsLoading] = useState(false)
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
+
+  // Cargar entregas desde localStorage
+  const loadDeliveries = () => {
+    setIsLoading(true)
+    
+    try {
+      const allKeys = Object.keys(localStorage)
+      const deliveryKeys = allKeys.filter(key => key.startsWith('delivery_'))
+      
+      const loadedDeliveries: DeliveryData[] = []
+      
+      deliveryKeys.forEach(key => {
+        try {
+          const deliveryData = JSON.parse(localStorage.getItem(key) || '{}')
+          if (deliveryData.deliveryId) {
+            loadedDeliveries.push(deliveryData)
+          }
+        } catch (error) {
+          console.warn(`Error cargando entrega ${key}:`, error)
+        }
+      })
+      
+      // Ordenar por timestamp (más recientes primero)
+      loadedDeliveries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      
+      setDeliveries(loadedDeliveries)
+      setLastUpdate(new Date())
+      
+      console.log(`📊 Cargadas ${loadedDeliveries.length} entregas`)
+      
+    } catch (error) {
+      console.error('Error cargando entregas:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Aplicar filtros
+  useEffect(() => {
+    let filtered = deliveries
+
+    // Filtro por búsqueda
+    if (searchTerm) {
+      filtered = filtered.filter(delivery => 
+        delivery.schoolName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        delivery.recipientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        delivery.activities.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    }
+
+    // Filtro por fecha
+    if (selectedDate) {
+      filtered = filtered.filter(delivery => 
+        delivery.timestamp.startsWith(selectedDate)
+      )
+    }
+
+    // Filtro por estado
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(delivery => delivery.status === statusFilter)
+    }
+
+    setFilteredDeliveries(filtered)
+  }, [deliveries, searchTerm, selectedDate, statusFilter])
+
+  // Cargar datos al montar el componente
+  useEffect(() => {
+    loadDeliveries()
+    
+    // Escuchar eventos de nuevas entregas
+    const handleNewDelivery = (event: CustomEvent) => {
+      console.log('🔔 Nueva entrega recibida en Admin:', event.detail)
+      loadDeliveries() // Recargar lista
+    }
+    
+    window.addEventListener('deliveryCompleted', handleNewDelivery as EventListener)
+    
+    return () => {
+      window.removeEventListener('deliveryCompleted', handleNewDelivery as EventListener)
+    }
+  }, [])
+
+  // Estadísticas
+  const stats = {
+    total: deliveries.length,
+    completed: deliveries.filter(d => d.status === 'completed').length,
+    inProgress: deliveries.filter(d => d.status === 'in-progress').length,
+    pending: deliveries.filter(d => d.status === 'pending').length
+  }
+
+  // Copiar datos de entrega
+  const copyDeliveryData = (delivery: DeliveryData) => {
+    const csvRow = [
+      new Date(delivery.timestamp).toLocaleDateString('es-ES'),
+      new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+      delivery.schoolName,
+      delivery.schoolAddress,
+      delivery.recipientName,
+      delivery.activities,
+      delivery.notes,
+      delivery.signature ? 'SÍ' : 'NO',
+      delivery.photoUrl ? 'SÍ' : 'NO'
+    ].map(field => `"${field}"`).join(',')
+    
+    navigator.clipboard.writeText(csvRow).then(() => {
+      alert('✅ Datos copiados al portapapeles')
+    })
+  }
+
+  // Eliminar entrega
+  const deleteDelivery = (deliveryId: string) => {
+    if (confirm('¿Estás seguro de que quieres eliminar esta entrega?')) {
+      localStorage.removeItem(`delivery_${deliveryId}`)
+      loadDeliveries()
+    }
+  }
+
+  // Exportar todas las entregas
+  const exportAllDeliveries = () => {
+    const csvHeader = 'Fecha,Hora,Escuela,Dirección,Receptor,Actividades,Notas,Tiene Firma,Tiene Foto'
+    const csvRows = filteredDeliveries.map(delivery => {
+      return [
+        new Date(delivery.timestamp).toLocaleDateString('es-ES'),
+        new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+        delivery.schoolName,
+        delivery.schoolAddress,
+        delivery.recipientName,
+        delivery.activities,
+        delivery.notes,
+        delivery.signature ? 'SÍ' : 'NO',
+        delivery.photoUrl ? 'SÍ' : 'NO'
+      ].map(field => `"${field}"`).join(',')
+    })
+    
+    const csvContent = [csvHeader, ...csvRows].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `entregas_activirutes_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+  }
+
+  // Limpiar entregas antiguas
+  const cleanOldDeliveries = () => {
+    const daysToKeep = prompt('¿Cuántos días de entregas quieres mantener? (Las más antiguas se eliminarán)')
+    if (!daysToKeep) return
+    
+    const cutoffDate = new Date()
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(daysToKeep))
+    
+    const keysToDelete = Object.keys(localStorage)
+      .filter(key => key.startsWith('delivery_'))
+      .filter(key => {
+        try {
+          const delivery = JSON.parse(localStorage.getItem(key) || '{}')
+          return new Date(delivery.timestamp) < cutoffDate
+        } catch {
+          return false
+        }
+      })
+    
+    if (keysToDelete.length === 0) {
+      alert('No hay entregas antiguas para eliminar')
+      return
+    }
+    
+    if (confirm(`Se eliminarán ${keysToDelete.length} entregas anteriores a ${cutoffDate.toLocaleDateString('es-ES')}. ¿Continuar?`)) {
+      keysToDelete.forEach(key => localStorage.removeItem(key))
+      loadDeliveries()
+      alert(`✅ ${keysToDelete.length} entregas antiguas eliminadas`)
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="h-4 w-4 text-green-600" />
+      case 'in-progress':
+        return <Clock className="h-4 w-4 text-yellow-600" />
+      case 'pending':
+        return <AlertCircle className="h-4 w-4 text-gray-600" />
+      default:
+        return <AlertCircle className="h-4 w-4 text-gray-600" />
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <Badge variant="default" className="bg-green-100 text-green-800">Completada</Badge>
+      case 'in-progress':
+        return <Badge variant="default" className="bg-yellow-100 text-yellow-800">En curso</Badge>
+      case 'pending':
+        return <Badge variant="outline">Pendiente</Badge>
+      default:
+        return <Badge variant="outline">Desconocido</Badge>
+    }
+  }
+
+  return (
+    <div className="container mx-auto p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Panel de Admin</h1>
+          <p className="text-gray-600">Gestión de entregas ActiviRutes</p>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <span>Última actualización: {lastUpdate.toLocaleTimeString('es-ES')}</span>
+          <Button
+            onClick={loadDeliveries}
+            disabled={isLoading}
+            variant="outline"
+            size="sm"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            Actualizar
+          </Button>
+        </div>
+      </div>
+
+      {/* Estadísticas */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total</p>
+                <p className="text-2xl font-bold">{stats.total}</p>
+              </div>
+              <Package className="h-8 w-8 text-blue-600" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Completadas</p>
+                <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
+              </div>
+              <CheckCircle2 className="h-8 w-8 text-green-600" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">En curso</p>
+                <p className="text-2xl font-bold text-yellow-600">{stats.inProgress}</p>
+              </div>
+              <Clock className="h-8 w-8 text-yellow-600" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Pendientes</p>
+                <p className="text-2xl font-bold text-gray-600">{stats.pending}</p>
+              </div>
+              <AlertCircle className="h-8 w-8 text-gray-600" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filtros y acciones */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+            <div className="flex flex-col sm:flex-row gap-4 items-center">
+              {/* Búsqueda */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Buscar por escuela, receptor..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 w-64"
+                />
+              </div>
+              
+              {/* Filtro de fecha */}
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-40"
+              />
+              
+              {/* Filtro de estado */}
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                <option value="all">Todos los estados</option>
+                <option value="completed">Completadas</option>
+                <option value="in-progress">En curso</option>
+                <option value="pending">Pendientes</option>
+              </select>
+            </div>
+            
+            {/* Acciones masivas */}
+            <div className="flex gap-2">
+              <Button onClick={exportAllDeliveries} variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Exportar CSV
+              </Button>
+              <Button onClick={cleanOldDeliveries} variant="outline" size="sm">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Limpiar antiguas
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Lista de entregas */}
+      <div className="space-y-4">
+        {filteredDeliveries.length === 0 ? (
+          <Card>
+            <CardContent className="p-8 text-center">
+              <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No hay entregas</h3>
+              <p className="text-gray-600">
+                {deliveries.length === 0 
+                  ? "Aún no se han registrado entregas."
+                  : "No hay entregas que coincidan con los filtros aplicados."
+                }
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          filteredDeliveries.map((delivery) => (
+            <Card key={delivery.deliveryId} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      {getStatusIcon(delivery.status)}
+                      <h3 className="font-medium text-gray-900">{delivery.schoolName}</h3>
+                      {getStatusBadge(delivery.status)}
+                      <span className="text-sm text-gray-500">
+                        {new Date(delivery.timestamp).toLocaleDateString('es-ES')} - {new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-gray-600">
+                      <div className="flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        {delivery.schoolAddress}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        {delivery.recipientName}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Package className="h-3 w-3" />
+                        {delivery.activities}
+                      </div>
+                    </div>
+                    
+                    {delivery.notes && (
+                      <p className="text-sm text-gray-600 mt-2 italic">
+                        💬 {delivery.notes}
+                      </p>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-2 ml-4">
+                    {delivery.signature && (
+                      <Badge variant="outline" className="text-xs">
+                        ✍️ Firma
+                      </Badge>
+                    )}
+                    {delivery.photoUrl && (
+                      <Badge variant="outline" className="text-xs">
+                        📸 Foto
+                      </Badge>
+                    )}
+                    
+                    <div className="flex gap-1">
+                      <Button
+                        onClick={() => window.open(`/informe/${delivery.deliveryId}`, '_blank')}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        onClick={() => copyDeliveryData(delivery)}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        onClick={() => deleteDelivery(delivery.deliveryId)}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+      
+      {/* Información adicional */}
+      {filteredDeliveries.length > 0 && (
+        <div className="text-center text-sm text-gray-500">
+          Mostrando {filteredDeliveries.length} de {deliveries.length} entregas
+        </div>
+      )}
+    </div>
+  )
+} 
