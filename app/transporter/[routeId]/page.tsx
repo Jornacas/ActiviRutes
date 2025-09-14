@@ -172,151 +172,32 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
   const startCamera = async () => {
     try {
-      // Limpiar estado anterior
+      // Método GOOGLE SCRIPT - Extremadamente simple
+      console.log('📷 Iniciando cámara (método Google Script)')
       setShowCameraError(false)
-      setCameraActive(false)
       
-      console.log('🎥 === INICIANDO CÁMARA - MODO SIMPLE ===')
-      
-      // Verificar disponibilidad básica
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Tu navegador no soporta acceso a la cámara')
-      }
-
-      // CONFIGURACIÓN ULTRA SIMPLE - Solo la más básica que funciona en todos lados
-      const constraints = { 
-        video: {
-          facingMode: 'environment', // Cámara trasera
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        }
-      }
-
-      console.log('🔄 Solicitando acceso a cámara con configuración básica...')
-      
-      // Timeout de 5 segundos para evitar colgarse
-      const mediaPromise = navigator.mediaDevices.getUserMedia(constraints)
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('La cámara tardó demasiado en responder')), 5000)
+      // Configuración MÍNIMA - exactamente como Google Script
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
       })
       
-      const mediaStream = await Promise.race([mediaPromise, timeoutPromise])
-      console.log('✅ ¡Cámara obtenida exitosamente!')
-      
-      // Si llegamos aquí, tenemos el stream
-
-      if (!mediaStream) {
-        throw new Error('No se pudo acceder a la cámara')
-      }
-
-      setStream(mediaStream)
-      
+      // Asignar directamente al video
       if (videoRef.current) {
-        console.log('📹 Asignando stream al elemento video...')
-        const video = videoRef.current
-        
-        // Configurar propiedades del video para máxima compatibilidad
-        video.muted = true
-        video.playsInline = true
-        video.autoplay = true
-        
-        // Asignar el stream
-        video.srcObject = mediaStream
-        
-        // Configurar eventos del video con manejo más agresivo
-        video.onloadedmetadata = async () => {
-          console.log('✅ Metadata del video cargada')
-          console.log('📏 Dimensiones del video:', video.videoWidth, 'x', video.videoHeight)
-          
-          // Intentar reproducir inmediatamente
-          try {
-            await video.play()
-            console.log('▶️ Video reproduciendo correctamente')
-          } catch (playError) {
-            console.error('❌ Error iniciando reproducción automática:', playError)
-            console.log('⚠️ Intentando reproducción manual...')
-          }
-        }
-        
-        video.onloadeddata = async () => {
-          console.log('✅ Datos del video cargados')
-          if (video.paused) {
-            try {
-              await video.play()
-              console.log('▶️ Video iniciado desde onloadeddata')
-            } catch (e) {
-              console.log('⚠️ Play desde loadeddata falló')
-            }
-          }
-        }
-        
-        video.oncanplay = async () => {
-          console.log('✅ Video puede reproducirse')
-          if (video.paused) {
-            try {
-              await video.play()
-              console.log('▶️ Video iniciado desde oncanplay')
-            } catch (e) {
-              console.log('⚠️ Play desde canplay falló')
-            }
-          }
-        }
-        
-        video.onplaying = () => {
-          console.log('▶️ Video está reproduciendo activamente')
-        }
-        
-        video.onerror = (e) => {
-          console.error('❌ Error en elemento video:', e)
-        }
-        
-        // Intentar reproducir después de un pequeño delay
-        setTimeout(async () => {
-          if (video.paused) {
-            try {
-              await video.play()
-              console.log('▶️ Video iniciado con delay')
-            } catch (e) {
-              console.log('⚠️ Play con delay falló - requiere interacción del usuario')
-            }
-          }
-        }, 100)
+        videoRef.current.srcObject = stream
+        videoRef.current.play()
       }
       
+      setStream(stream)
       setCameraActive(true)
-      setCameraPermission('granted')
-      console.log('✅ Cámara activada correctamente')
+      console.log('✅ Cámara iniciada')
       
     } catch (error) {
-      console.error('❌ Error accediendo a la cámara:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-      
+      console.error('❌ Error de cámara:', error)
       setShowCameraError(true)
-      setCameraPermission('denied')
+      setCameraActive(false)
       
-      // Mensaje de error más claro y específico
-      let troubleshootingMessage = `❌ No se puede acceder a la cámara\n\n`
-      
-      if (errorMessage.includes('denied')) {
-        troubleshootingMessage += `🔒 Los permisos de cámara han sido denegados.\n\n`
-        troubleshootingMessage += `💡 Para solucionarlo:\n`
-        troubleshootingMessage += `1. Busca el ícono de cámara en la barra de direcciones\n`
-        troubleshootingMessage += `2. Haz clic y selecciona "Permitir"\n`
-        troubleshootingMessage += `3. Recarga la página\n\n`
-      } else if (errorMessage.includes('not found')) {
-        troubleshootingMessage += `📱 No se encontró ninguna cámara.\n\n`
-        troubleshootingMessage += `💡 Verifica que tu dispositivo tenga cámara.\n\n`
-      } else {
-        troubleshootingMessage += `🔧 Error: ${errorMessage}\n\n`
-        troubleshootingMessage += `💡 Intenta:\n`
-        troubleshootingMessage += `• Usar HTTPS (no HTTP)\n`
-        troubleshootingMessage += `• Refrescar la página\n`
-        troubleshootingMessage += `• Probar con otro navegador\n\n`
-      }
-      
-      troubleshootingMessage += `📷 Alternativa: Usa "Subir desde Galería" para seleccionar una foto.`
-      
-      alert(troubleshootingMessage)
+      // Mensaje simple
+      alert('⚠️ No se pudo acceder a la cámara.\n\n💡 Usa "Subir desde Galería" como alternativa.')
     }
   }
 
@@ -512,87 +393,13 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
       {cameraActive && (
         <div className="space-y-2">
-          <div className="relative">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              controls={false}
-              preload="metadata"
-              style={{ 
-                transform: 'scaleX(-1)', // Efecto espejo para mayor naturalidad
-                objectFit: 'cover',
-                backgroundColor: '#000' // Fondo negro explícito
-              }}
-              className="w-full h-64 bg-gray-900 rounded-lg border-2 border-gray-300 cursor-pointer"
-              onLoadStart={() => {
-                console.log('📹 Video iniciando carga...')
-              }}
-              onLoadedMetadata={() => {
-                console.log('📹 Metadata cargada')
-                if (videoRef.current) {
-                  console.log('📹 Dimensiones:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight)
-                }
-              }}
-              onLoadedData={() => {
-                console.log('📹 Datos del video cargados')
-              }}
-              onCanPlay={() => {
-                console.log('📹 Video puede reproducirse')
-              }}
-              onCanPlayThrough={() => {
-                console.log('📹 Video puede reproducirse completamente')
-              }}
-              onPlay={() => console.log('📹 Video reproduciendo ✅')}
-              onPlaying={() => console.log('📹 Video está activamente reproduciendo ✅')}
-              onPause={() => console.log('⏸️ Video pausado')}
-              onWaiting={() => console.log('⏳ Video esperando...')}
-              onStalled={() => console.log('🔄 Video detenido temporalmente')}
-              onError={(e) => {
-                console.error('📹 Error en video:', e)
-                console.error('📹 Error details:', e.currentTarget.error)
-              }}
-              onClick={async () => {
-                // Click para iniciar si está pausado
-                if (videoRef.current) {
-                  try {
-                    if (videoRef.current.paused) {
-                      await videoRef.current.play()
-                      console.log('▶️ Video iniciado por click del usuario')
-                    }
-                  } catch (e) {
-                    console.log('⚠️ Play manual falló:', e)
-                    alert('No se pudo iniciar el video. Intenta recargar la página.')
-                  }
-                }
-              }}
-              onTouchStart={async () => {
-                // Touch para dispositivos móviles
-                if (videoRef.current && videoRef.current.paused) {
-                  try {
-                    await videoRef.current.play()
-                    console.log('▶️ Video iniciado por touch')
-                  } catch (e) {
-                    console.log('⚠️ Play por touch falló:', e)
-                  }
-                }
-              }}
-            />
-            {/* Overlay con información */}
-            <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs p-1 rounded">
-              📹 Cámara activa
-            </div>
-            {/* Overlay con instrucciones dinámicas */}
-            <div className="absolute bottom-2 left-2 right-2 bg-black bg-opacity-50 text-white text-xs p-2 rounded text-center">
-              {videoRef.current?.paused ? 
-                '👆 TOCA AQUÍ para iniciar la cámara' : 
-                (videoRef.current?.videoWidth || 0) > 0 ? 
-                  '✅ Cámara funcionando - Lista para capturar' : 
-                  '⏳ Iniciando cámara...'
-              }
-            </div>
-          </div>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-64 rounded-lg border bg-black"
+          />
           <div className="flex gap-2">
             <Button type="button" onClick={takePhoto} className="flex-1">
               <Camera className="h-4 w-4 mr-2" />
@@ -600,14 +407,8 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
             </Button>
             <Button type="button" onClick={stopCamera} variant="outline">
               <X className="h-4 w-4 mr-2" />
-              Cancelar
+              Cerrar Cámara
             </Button>
-          </div>
-          <div className="text-xs text-gray-600 text-center space-y-1">
-            <p>💡 Si la pantalla está negra:</p>
-            <p>1. Toca en el video para iniciar</p>
-            <p>2. Verifica permisos de cámara</p>
-            <p>3. Usa "Subir desde Galería"</p>
           </div>
         </div>
       )}

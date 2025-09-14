@@ -217,24 +217,79 @@ function generateRouteOptions(
   ]
 }
 
-// Función para acortar URLs usando un servicio gratuito
+// Función para acortar URLs usando múltiples servicios
 const shortenURL = async (longUrl: string): Promise<string> => {
-  try {
-    // Usar is.gd como servicio de acortamiento gratuito
-    const response = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`);
-    const data = await response.json();
-    
-    if (data.shorturl) {
-      console.log('✅ URL acortada:', data.shorturl);
-      return data.shorturl;
-    } else {
-      console.warn('⚠️ No se pudo acortar URL, usando original');
-      return longUrl;
+  console.log('🔗 === ACORTANDO URL ===');
+  console.log('📏 URL original:', longUrl);
+  console.log('📊 Longitud original:', longUrl.length, 'caracteres');
+  
+  // Lista de servicios para probar
+  const services = [
+    // Servicio 1: is.gd
+    {
+      name: 'is.gd',
+      url: `https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`,
+      method: 'GET'
+    },
+    // Servicio 2: tinyurl.com
+    {
+      name: 'tinyurl.com',
+      url: `https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`,
+      method: 'GET'
     }
-  } catch (error) {
-    console.warn('⚠️ Error acortando URL:', error);
-    return longUrl;
+  ];
+  
+  for (const service of services) {
+    try {
+      console.log(`🔄 Intentando acortar con ${service.name}...`);
+      
+      const response = await fetch(service.url, {
+        method: service.method,
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        console.warn(`⚠️ ${service.name} respondió con estado ${response.status}`);
+        continue;
+      }
+      
+             let shortUrl: string = '';
+       
+       if (service.name === 'is.gd') {
+         const data = await response.json();
+         if (data.shorturl) {
+           shortUrl = data.shorturl;
+         } else {
+           console.warn(`⚠️ ${service.name} no devolvió shorturl:`, data);
+           continue;
+         }
+       } else if (service.name === 'tinyurl.com') {
+         shortUrl = await response.text();
+         if (!shortUrl.startsWith('http')) {
+           console.warn(`⚠️ ${service.name} devolvió respuesta inválida:`, shortUrl);
+           continue;
+         }
+       }
+       
+       if (!shortUrl) {
+         console.warn(`⚠️ ${service.name} no generó URL válida`);
+         continue;
+       }
+      
+      console.log(`✅ URL acortada con ${service.name}:`, shortUrl);
+      console.log(`📊 Reducido de ${longUrl.length} a ${shortUrl.length} caracteres`);
+      return shortUrl;
+      
+    } catch (error) {
+      console.warn(`⚠️ Error con ${service.name}:`, error);
+      continue;
+    }
   }
+  
+  console.warn('⚠️ Todos los servicios de acortamiento fallaron, usando URL original');
+  return longUrl;
 };
 
 // Función para exportar a Google Maps
@@ -1675,9 +1730,23 @@ export default function RouteEditor({
             
             <div className="space-y-4">
               <div className="bg-gray-50 p-3 rounded border">
-                <p className="text-sm text-gray-600 mb-2">Link generado:</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-gray-600">Link generado:</p>
+                  <span className={`text-xs px-2 py-1 rounded ${
+                    transporterLink && transporterLink.includes('is.gd') ? 'bg-green-100 text-green-700' :
+                    transporterLink && transporterLink.includes('tinyurl') ? 'bg-blue-100 text-blue-700' :
+                    'bg-yellow-100 text-yellow-700'
+                  }`}>
+                    {transporterLink && transporterLink.includes('is.gd') ? '✅ Acortada (is.gd)' :
+                     transporterLink && transporterLink.includes('tinyurl') ? '✅ Acortada (tinyurl)' :
+                     '⚠️ URL Original'}
+                  </span>
+                </div>
                 <p className="font-mono text-xs bg-white p-2 rounded border break-all">
                   {transporterLink}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  📏 Longitud: {transporterLink?.length || 0} caracteres
                 </p>
               </div>
 
