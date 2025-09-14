@@ -151,7 +151,24 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
   const [photo, setPhoto] = useState<string>('')
   const [cameraActive, setCameraActive] = useState(false)
   const [showCameraError, setShowCameraError] = useState(false)
+  const [cameraPermission, setCameraPermission] = useState<'unknown' | 'granted' | 'denied' | 'prompt'>('unknown')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Verificar permisos de cámara al montar el componente
+  useEffect(() => {
+    const checkCameraPermission = async () => {
+      if (navigator.permissions) {
+        try {
+          const permission = await navigator.permissions.query({ name: 'camera' as PermissionName })
+          setCameraPermission(permission.state as 'granted' | 'denied' | 'prompt')
+          console.log('🔒 Estado de permisos de cámara:', permission.state)
+        } catch (error) {
+          console.log('🔒 No se puede verificar permisos:', error)
+        }
+      }
+    }
+    checkCameraPermission()
+  }, [])
 
   const startCamera = async () => {
     try {
@@ -162,56 +179,27 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
       console.log('🎥 Intentando acceder a la cámara...')
       
-      // Lista de constraints específicos para móvil
+      // Verificar si ya tenemos permisos denegados
+      if (cameraPermission === 'denied') {
+        throw new Error('Los permisos de cámara han sido denegados. Por favor, habilítalos en la configuración del navegador.')
+      }
+      
+      // Lista de constraints específicos para móvil (simplificada para evitar pantalla negra)
       const constraintsToTry = [
         // Cámara trasera optimizada para móvil
         { 
           video: { 
             facingMode: { exact: 'environment' },
-            width: { ideal: 1280, max: 1920 },
-            height: { ideal: 720, max: 1080 },
-            frameRate: { ideal: 30, max: 30 }
-          } 
-        },
-        // Cámara trasera sin frameRate fijo (para dispositivos lentos)
-        { 
-          video: { 
-            facingMode: { exact: 'environment' },
             width: { ideal: 1280 },
             height: { ideal: 720 }
           } 
         },
-        // Cámara trasera con resolución baja
-        { 
-          video: { 
-            facingMode: { exact: 'environment' },
-            width: 640,
-            height: 480
-          } 
-        },
-        // Cualquier cámara trasera
+        // Cámara trasera sin resolución específica
         { video: { facingMode: 'environment' } },
-        // Cámara frontal optimizada
-        { 
-          video: { 
-            facingMode: { exact: 'user' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          } 
-        },
-        // Cualquier cámara frontal
+        // Cámara frontal
         { video: { facingMode: 'user' } },
-        // Cualquier cámara con buena resolución
-        { 
-          video: { 
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 480 }
-          } 
-        },
         // Cualquier cámara disponible
-        { video: true },
-        // Fallback mínimo
-        { video: { width: 320, height: 240 } }
+        { video: true }
       ]
 
       let mediaStream: MediaStream | null = null
@@ -243,19 +231,7 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
         console.log('📹 Asignando stream al elemento video...')
         videoRef.current.srcObject = mediaStream
         
-        // Verificar las pistas del stream
-        const videoTracks = mediaStream.getVideoTracks()
-        console.log('📋 Pistas de video:', videoTracks.length)
-        videoTracks.forEach((track, index) => {
-          console.log(`   Pista ${index}:`, {
-            label: track.label,
-            enabled: track.enabled,
-            readyState: track.readyState,
-            settings: track.getSettings()
-          })
-        })
-        
-        // Configurar eventos del video con más debugging
+        // Configurar eventos del video
         videoRef.current.onloadedmetadata = () => {
           console.log('✅ Metadata del video cargada')
           console.log('📏 Dimensiones del video:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight)
@@ -266,8 +242,8 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
               .then(() => console.log('▶️ Video reproduciendo correctamente'))
               .catch((playError) => {
                 console.error('❌ Error iniciando reproducción:', playError)
-                // Intentar interacción manual
-                alert('Toca en el video para iniciarlo manualmente')
+                // Mostrar mensaje más claro
+                alert('🎥 La cámara está lista. Si ves pantalla negra, toca en el video para iniciarlo.')
               })
           }
         }
@@ -276,29 +252,10 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
         videoRef.current.oncanplay = () => console.log('✅ Video puede reproducirse')
         videoRef.current.onplaying = () => console.log('▶️ Video está reproduciendo')
         videoRef.current.onerror = (e) => console.error('❌ Error en elemento video:', e)
-        
-        videoRef.current.onloadeddata = () => {
-          console.log('✅ Datos del video cargados')
-        }
-        
-        videoRef.current.oncanplay = () => {
-          console.log('✅ Video listo para reproducir')
-        }
-        
-        videoRef.current.onerror = (e) => {
-          console.error('❌ Error en el elemento video:', e)
-        }
-
-        // Intentar reproducir inmediatamente
-        try {
-          await videoRef.current.play()
-          console.log('✅ Video reproduciéndose correctamente')
-        } catch (playError) {
-          console.warn('⚠️ Reproducción automática bloqueada:', playError)
-        }
       }
       
       setCameraActive(true)
+      setCameraPermission('granted')
       console.log('✅ Cámara activada correctamente')
       
     } catch (error) {
@@ -306,14 +263,29 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
       
       setShowCameraError(true)
+      setCameraPermission('denied')
       
-      // Mensaje de error más detallado pero más corto
-      let troubleshootingMessage = `❌ No se puede acceder a la cámara: ${errorMessage}\n\n`
-      troubleshootingMessage += `💡 Usa el botón "Subir desde Galería" como alternativa.\n\n`
-      troubleshootingMessage += `🔧 Para solucionar la cámara:\n`
-      troubleshootingMessage += `• Permitir acceso a la cámara\n`
-      troubleshootingMessage += `• Usar HTTPS o refrescar la página\n`
-      troubleshootingMessage += `• Probar con otro navegador`
+      // Mensaje de error más claro y específico
+      let troubleshootingMessage = `❌ No se puede acceder a la cámara\n\n`
+      
+      if (errorMessage.includes('denied')) {
+        troubleshootingMessage += `🔒 Los permisos de cámara han sido denegados.\n\n`
+        troubleshootingMessage += `💡 Para solucionarlo:\n`
+        troubleshootingMessage += `1. Busca el ícono de cámara en la barra de direcciones\n`
+        troubleshootingMessage += `2. Haz clic y selecciona "Permitir"\n`
+        troubleshootingMessage += `3. Recarga la página\n\n`
+      } else if (errorMessage.includes('not found')) {
+        troubleshootingMessage += `📱 No se encontró ninguna cámara.\n\n`
+        troubleshootingMessage += `💡 Verifica que tu dispositivo tenga cámara.\n\n`
+      } else {
+        troubleshootingMessage += `🔧 Error: ${errorMessage}\n\n`
+        troubleshootingMessage += `💡 Intenta:\n`
+        troubleshootingMessage += `• Usar HTTPS (no HTTP)\n`
+        troubleshootingMessage += `• Refrescar la página\n`
+        troubleshootingMessage += `• Probar con otro navegador\n\n`
+      }
+      
+      troubleshootingMessage += `📷 Alternativa: Usa "Subir desde Galería" para seleccionar una foto.`
       
       alert(troubleshootingMessage)
     }
@@ -486,6 +458,12 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
             </div>
           )}
           
+          {cameraPermission === 'denied' && (
+            <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+              🔒 Permisos de cámara denegados. Habilítalos en la configuración del navegador.
+            </div>
+          )}
+          
           <input
             ref={fileInputRef}
             type="file"
@@ -540,9 +518,13 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
                 }
               }}
             />
-            {/* Overlay con información de debug en desarrollo */}
+            {/* Overlay con información */}
             <div className="absolute top-2 left-2 bg-black bg-opacity-50 text-white text-xs p-1 rounded">
               📹 Cámara activa
+            </div>
+            {/* Overlay con instrucciones si está pausado */}
+            <div className="absolute bottom-2 left-2 right-2 bg-black bg-opacity-50 text-white text-xs p-2 rounded text-center">
+              {videoRef.current?.paused ? 'Toca aquí para iniciar la cámara' : 'Cámara funcionando correctamente'}
             </div>
           </div>
           <div className="flex gap-2">

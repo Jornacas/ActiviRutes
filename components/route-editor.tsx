@@ -217,6 +217,26 @@ function generateRouteOptions(
   ]
 }
 
+// Función para acortar URLs usando un servicio gratuito
+const shortenURL = async (longUrl: string): Promise<string> => {
+  try {
+    // Usar is.gd como servicio de acortamiento gratuito
+    const response = await fetch(`https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`);
+    const data = await response.json();
+    
+    if (data.shorturl) {
+      console.log('✅ URL acortada:', data.shorturl);
+      return data.shorturl;
+    } else {
+      console.warn('⚠️ No se pudo acortar URL, usando original');
+      return longUrl;
+    }
+  } catch (error) {
+    console.warn('⚠️ Error acortando URL:', error);
+    return longUrl;
+  }
+};
+
 // Función para exportar a Google Maps
 const exportToGoogleMaps = async (items: RouteItem[], routePreferences: RoutePreferences) => {
   console.log("🗺️ Exportando a Google Maps:", items.length, "items")
@@ -953,17 +973,15 @@ export default function RouteEditor({
     localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify(routeData));
     console.log('💾 Ruta guardada en localStorage con key:', `savedRoute_${currentRouteId}`)
     
-    // Crear DOS versiones: una ultra comprimida para QR y otra completa para copiar
-    
-    // Versión ULTRA comprimida para QR (máximo 5 items más importantes)
+    // Crear versión ULTRA comprimida para QR (máximo 3 items más importantes)
     const compactSummary = {
       i: currentRouteId,
       t: config.type[0], // d/p
       n: currentItems.length,
-      s: currentItems.slice(0, 5).map(item => ({
+      s: currentItems.slice(0, 3).map(item => ({
         i: item.id,
         n: item.name.split(' ').slice(0, 2).join(' '), // Solo 2 palabras
-        a: item.activities.slice(0, 1) // Solo 1 actividad
+        a: [item.activities[0] || 'Material'] // Solo 1 actividad
       }))
     };
     
@@ -986,19 +1004,31 @@ export default function RouteEditor({
     const compactEncoded = btoa(JSON.stringify(compactSummary));
     const fullEncoded = btoa(JSON.stringify(fullSummary));
     
-    // Links
+    // Links base
     const hostname = window.location.hostname;
-    const compactLink = `${window.location.origin}/transporter/${currentRouteId}?data=${compactEncoded}`;
-    const finalLink = `${window.location.origin}/transporter/${currentRouteId}?data=${fullEncoded}`;
+    const baseUrl = `${window.location.origin}/transporter/${currentRouteId}`;
+    const compactLink = `${baseUrl}?data=${compactEncoded}`;
+    const fullLink = `${baseUrl}?data=${fullEncoded}`;
     
     console.log('🌐 Hostname:', hostname)
-    console.log('🔗 Link final generado:', finalLink)
-    console.log('🌐 Window origin:', window.location.origin)
+    console.log('🔗 Link completo generado:', fullLink)
     console.log('📦 Datos codificados incluidos en URL para compatibilidad móvil')
     
-    // Establecer AMBOS links - INTERCAMBIADOS para priorizar datos completos
-    setTransporterLink(finalLink); // Link completo para copiar
-    setTransporterQRLink(finalLink); // USAR LINK COMPLETO también para QR (intentar primero)
+    // Acortar URLs para hacerlas más manejables
+    let shortCompactLink = compactLink;
+    let shortFullLink = fullLink;
+    
+    try {
+      console.log('🔗 Acortando URLs...');
+      shortCompactLink = await shortenURL(compactLink);
+      shortFullLink = await shortenURL(fullLink);
+    } catch (error) {
+      console.warn('⚠️ No se pudieron acortar las URLs, usando originales');
+    }
+    
+    // Establecer links
+    setTransporterLink(shortFullLink); // Link completo acortado para copiar
+    setTransporterQRLink(shortCompactLink); // Link compacto acortado para QR
     
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       // En desarrollo - necesita túnel público
@@ -1036,9 +1066,15 @@ export default function RouteEditor({
   };
 
   const generateQRCode = (url: string) => {
-    // Generar QR code usando una API pública
+    // Generar QR code usando una API pública con mejor manejo de errores
     console.log('📱 === GENERANDO QR CODE ===')
     console.log('🔗 URL para QR:', url)
+    
+    // Validar que la URL no esté vacía
+    if (!url || url.trim() === '') {
+      console.error('❌ URL vacía para QR');
+      return '';
+    }
     
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
     console.log('📱 QR API URL:', qrUrl)
@@ -1733,7 +1769,11 @@ export default function RouteEditor({
                     }));
                     const fallbackLink = `${window.location.origin}/transporter/route-${Date.now()}?data=${compactData}`;
                     e.currentTarget.src = generateQRCode(fallbackLink);
-                    e.currentTarget.nextElementSibling!.style.display = 'block';
+                    // Arreglar el error de TypeScript
+                    const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
+                    if (nextElement) {
+                      nextElement.style.display = 'block';
+                    }
                   }}
                 />
                 <div className="text-xs text-amber-600 mt-2 p-2 bg-amber-50 rounded" style={{display: 'none'}}>
