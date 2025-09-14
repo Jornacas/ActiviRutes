@@ -172,56 +172,41 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
 
   const startCamera = async () => {
     try {
-      // Verificar si getUserMedia está disponible
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('La API de cámara no está disponible en este navegador')
+      // Limpiar estado anterior
+      setShowCameraError(false)
+      setCameraActive(false)
+      
+      console.log('🎥 === INICIANDO CÁMARA - MODO SIMPLE ===')
+      
+      // Verificar disponibilidad básica
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Tu navegador no soporta acceso a la cámara')
       }
 
-      console.log('🎥 Intentando acceder a la cámara...')
-      
-      // Verificar si ya tenemos permisos denegados
-      if (cameraPermission === 'denied') {
-        throw new Error('Los permisos de cámara han sido denegados. Por favor, habilítalos en la configuración del navegador.')
-      }
-      
-      // Lista de constraints ultra-simplificada para máxima compatibilidad
-      const constraintsToTry = [
-        // Configuración básica sin resolución específica
-        { video: { facingMode: 'environment' } },
-        // Cámara frontal básica
-        { video: { facingMode: 'user' } },
-        // Cualquier cámara sin restricciones
-        { video: true },
-        // Fallback con configuración mínima
-        { 
-          video: { 
-            width: 640,
-            height: 480
-          } 
-        }
-      ]
-
-      let mediaStream: MediaStream | null = null
-      let lastError: Error | null = null
-
-      // Probar cada constraint hasta encontrar una que funcione
-      for (let i = 0; i < constraintsToTry.length; i++) {
-        const constraints = constraintsToTry[i]
-        console.log(`🔄 Probando constraint ${i + 1}/${constraintsToTry.length}:`, constraints)
-        
-        try {
-          mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
-          console.log(`✅ Constraint ${i + 1} funcionó correctamente`)
-          break
-        } catch (error) {
-          console.warn(`❌ Constraint ${i + 1} falló:`, error)
-          lastError = error instanceof Error ? error : new Error(String(error))
-          continue
+      // CONFIGURACIÓN ULTRA SIMPLE - Solo la más básica que funciona en todos lados
+      const constraints = { 
+        video: {
+          facingMode: 'environment', // Cámara trasera
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         }
       }
+
+      console.log('🔄 Solicitando acceso a cámara con configuración básica...')
+      
+      // Timeout de 5 segundos para evitar colgarse
+      const mediaPromise = navigator.mediaDevices.getUserMedia(constraints)
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('La cámara tardó demasiado en responder')), 5000)
+      })
+      
+      const mediaStream = await Promise.race([mediaPromise, timeoutPromise])
+      console.log('✅ ¡Cámara obtenida exitosamente!')
+      
+      // Si llegamos aquí, tenemos el stream
 
       if (!mediaStream) {
-        throw lastError || new Error('No se pudo acceder a ninguna cámara')
+        throw new Error('No se pudo acceder a la cámara')
       }
 
       setStream(mediaStream)
@@ -487,6 +472,12 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
           </Button>
           
           <div className="flex gap-2">
+            {!cameraActive && showCameraError && (
+              <Button type="button" onClick={startCamera} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">
+                <Camera className="h-4 w-4 mr-2" />
+                Reintentar Cámara
+              </Button>
+            )}
             <Button type="button" onClick={openFileSelector} variant="outline" className="flex-1">
               <Package className="h-4 w-4 mr-2" />
               Subir desde Galería
@@ -498,7 +489,8 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
           
           {showCameraError && (
             <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-              ⚠️ Problema con la cámara. Usa "Subir desde Galería" como alternativa.
+              ⚠️ Problema con la cámara: La cámara tardó demasiado en responder o no está disponible.
+              <br />💡 Usa "Reintentar Cámara" o "Subir desde Galería" como alternativa.
             </div>
           )}
           
