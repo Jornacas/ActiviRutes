@@ -62,8 +62,25 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
-  const [dataSource, setDataSource] = useState<'local' | 'sheets'>('local')
+  const [dataSource, setDataSource] = useState<'local' | 'sheets'>('sheets')
   const [isConnectedToSheets, setIsConnectedToSheets] = useState(false)
+
+  // Función para sincronizar datos de Sheets a localStorage
+  const syncSheetsDataToLocalStorage = (sheetsDeliveries: DeliveryData[]) => {
+    try {
+      console.log('🔄 Sincronizando datos de Sheets a localStorage...')
+      
+      sheetsDeliveries.forEach(delivery => {
+        // Guardar cada entrega individual para que funcionen los links de informes
+        const key = `delivery_${delivery.deliveryId}`
+        localStorage.setItem(key, JSON.stringify(delivery))
+      })
+      
+      console.log(`✅ ${sheetsDeliveries.length} entregas sincronizadas a localStorage`)
+    } catch (error) {
+      console.warn('⚠️ Error sincronizando a localStorage:', error)
+    }
+  }
 
   // Cargar entregas desde Google Sheets
   const loadDeliveriesFromSheets = async () => {
@@ -74,7 +91,6 @@ export default function AdminPage() {
       
       const response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
         method: 'POST',
-        mode: 'no-cors',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -84,13 +100,48 @@ export default function AdminPage() {
         })
       })
       
-      // Con mode: 'no-cors' no podemos leer la respuesta directamente
-      // Necesitamos usar una estrategia diferente o mostrar que se intentó cargar
-      setIsConnectedToSheets(true)
-      console.log('✅ Solicitud enviada a Google Sheets')
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
       
-      // Fallback: cargar datos locales si no podemos acceder a Sheets directamente
-      loadDeliveriesFromLocalStorage()
+      const result = await response.json()
+      console.log('📋 Respuesta de Google Sheets:', result)
+      
+      if (result.status === 'success' && result.data) {
+        // Convertir datos de Sheets al formato de DeliveryData
+        const sheetsDeliveries: DeliveryData[] = result.data.map((row: any, index: number) => {
+          // Estructura esperada: FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME
+          const deliveryId = `sheets_${Date.now()}_${index}`
+          
+          return {
+            deliveryId,
+            timestamp: new Date(`${row.FECHA || row[0]} ${row.HORA || row[1]}`).toISOString(),
+            routeId: row.RUTA_ID || row[2] || 'N/A',
+            schoolName: row.ESCUELA || row[3] || 'Desconocida',
+            schoolAddress: row.DIRECCION || row[4] || '',
+            activities: row.ACTIVIDADES || row[5] || '',
+            recipientName: row.RECEPTOR || row[6] || '',
+            notes: row.NOTAS || row[7] || '',
+            signature: (row.TIENE_FIRMA || row[8]) === 'SÍ' ? 'data:image/png;base64,signed' : '',
+            photoUrl: (row.TIENE_FOTO || row[9]) === 'SÍ' ? 'data:image/jpeg;base64,photo' : '',
+            status: 'completed' as const
+          }
+        })
+        
+        setDeliveries(sheetsDeliveries)
+        setIsConnectedToSheets(true)
+        setLastUpdate(new Date())
+        
+        // NUEVO: Sincronizar datos a localStorage para que funcionen los informes individuales
+        syncSheetsDataToLocalStorage(sheetsDeliveries)
+        
+        console.log(`✅ ${sheetsDeliveries.length} entregas cargadas desde Google Sheets`)
+        
+      } else {
+        console.warn('⚠️ Respuesta inesperada de Google Sheets:', result)
+        setIsConnectedToSheets(false)
+        loadDeliveriesFromLocalStorage()
+      }
       
     } catch (error) {
       console.error('❌ Error conectando con Google Sheets:', error)

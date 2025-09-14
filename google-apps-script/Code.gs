@@ -187,7 +187,12 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
           status: 'error',
           message: 'Hoja no encontrada: ' + sheetName
         }))
-        .setMimeType(ContentService.MimeType.JSON);
+        .setMimeType(ContentService.MimeType.JSON)
+        .setHeaders({
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        });
     }
     
     // Obtener todos los datos de la hoja
@@ -201,7 +206,12 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
           data: [],
           message: 'No hay entregas registradas'
         }))
-        .setMimeType(ContentService.MimeType.JSON);
+        .setMimeType(ContentService.MimeType.JSON)
+        .setHeaders({
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        });
     }
     
     // Obtener encabezados (primera fila)
@@ -232,7 +242,12 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
         headers: headers,
         lastUpdate: new Date().toISOString()
       }))
-      .setMimeType(ContentService.MimeType.JSON);
+      .setMimeType(ContentService.MimeType.JSON)
+      .setHeaders({
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      });
       
   } catch (error) {
     console.error('❌ Error obteniendo entregas:', error.toString());
@@ -241,6 +256,11 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
         status: 'error',
         message: 'Error obteniendo entregas: ' + error.toString()
       }))
-      .setMimeType(ContentService.MimeType.JSON);
+      .setMimeType(ContentService.MimeType.JSON)
+      .setHeaders({
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      });
   }
 }
