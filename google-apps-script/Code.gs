@@ -3,6 +3,33 @@
  * Este script recibe datos POST de la aplicación ActiviRutes y los guarda en Google Sheets
  */
 
+/**
+ * Función helper para crear respuestas con CORS headers
+ */
+function createCORSResponse(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON)
+    .setHeaders({
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400'
+    });
+}
+
+/**
+ * Maneja las peticiones GET y OPTIONS (para CORS preflight)
+ */
+function doGet(e) {
+  return createCORSResponse({
+    status: 'success',
+    message: 'ActiviRutes API ready',
+    timestamp: new Date().toISOString(),
+    version: '2.0'
+  });
+}
+
 function doPost(e) {
   try {
     console.log('📥 Recibiendo datos POST de ActiviRutes');
@@ -23,21 +50,17 @@ function doPost(e) {
     
     // Acción no reconocida
     console.error('❌ Acción no válida:', data.action);
-    return ContentService
-      .createTextOutput(JSON.stringify({
-        status: 'error', 
-        message: 'Acción no válida: ' + data.action
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return createCORSResponse({
+      status: 'error', 
+      message: 'Acción no válida: ' + data.action
+    });
       
   } catch (error) {
     console.error('❌ Error procesando POST:', error.toString());
-    return ContentService
-      .createTextOutput(JSON.stringify({
-        status: 'error', 
-        message: 'Error procesando datos: ' + error.toString()
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return createCORSResponse({
+      status: 'error', 
+      message: 'Error procesando datos: ' + error.toString()
+    });
   }
 }
 
@@ -182,17 +205,10 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
     
     if (!sheet) {
       console.error('❌ Hoja no encontrada:', sheetName);
-      return ContentService
-        .createTextOutput(JSON.stringify({
-          status: 'error',
-          message: 'Hoja no encontrada: ' + sheetName
-        }))
-        .setMimeType(ContentService.MimeType.JSON)
-        .setHeaders({
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type'
-        });
+      return createCORSResponse({
+        status: 'error',
+        message: 'Hoja no encontrada: ' + sheetName
+      });
     }
     
     // Obtener todos los datos de la hoja
@@ -200,18 +216,11 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
     if (lastRow <= 1) {
       // Solo hay header o está vacía
       console.log('ℹ️ No hay entregas en la hoja');
-      return ContentService
-        .createTextOutput(JSON.stringify({
-          status: 'success',
-          data: [],
-          message: 'No hay entregas registradas'
-        }))
-        .setMimeType(ContentService.MimeType.JSON)
-        .setHeaders({
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type'
-        });
+      return createCORSResponse({
+        status: 'success',
+        data: [],
+        message: 'No hay entregas registradas'
+      });
     }
     
     // Obtener encabezados (primera fila)
@@ -234,33 +243,19 @@ function getDeliveriesFromSheet(sheetName = 'Entregas') {
     
     console.log(`✅ ${deliveries.length} entregas obtenidas exitosamente`);
     
-    return ContentService
-      .createTextOutput(JSON.stringify({
-        status: 'success',
-        data: deliveries,
-        message: `${deliveries.length} entregas obtenidas`,
-        headers: headers,
-        lastUpdate: new Date().toISOString()
-      }))
-      .setMimeType(ContentService.MimeType.JSON)
-      .setHeaders({
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
-      });
+    return createCORSResponse({
+      status: 'success',
+      data: deliveries,
+      message: `${deliveries.length} entregas obtenidas`,
+      headers: headers,
+      lastUpdate: new Date().toISOString()
+    });
       
   } catch (error) {
     console.error('❌ Error obteniendo entregas:', error.toString());
-    return ContentService
-      .createTextOutput(JSON.stringify({
-        status: 'error',
-        message: 'Error obteniendo entregas: ' + error.toString()
-      }))
-      .setMimeType(ContentService.MimeType.JSON)
-      .setHeaders({
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
-      });
+    return createCORSResponse({
+      status: 'error',
+      message: 'Error obteniendo entregas: ' + error.toString()
+    });
   }
 }

@@ -89,16 +89,39 @@ export default function AdminPage() {
     try {
       console.log('📊 Cargando entregas desde Google Sheets...')
       
-      const response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'getDeliveries',
-          sheetName: GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME
+      // Intentar primero con CORS habilitado
+      let response;
+      try {
+        response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'getDeliveries',
+            sheetName: GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME
+          })
         })
-      })
+      } catch (corsError) {
+        console.warn('⚠️ Error CORS, reintentando con no-cors...', corsError)
+        // Fallback a no-cors (no podemos leer respuesta pero podemos intentar enviar)
+        response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'getDeliveries',
+            sheetName: GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME
+          })
+        })
+        
+        // Con no-cors, simular respuesta y cargar datos locales
+        setIsConnectedToSheets(false)
+        loadDeliveriesFromLocalStorage()
+        return
+      }
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
