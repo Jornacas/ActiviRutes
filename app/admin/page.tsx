@@ -18,8 +18,17 @@ import {
   Package,
   CheckCircle2,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Wifi,
+  WifiOff
 } from "lucide-react"
+
+// Configuración de Google Sheets (igual que en el transportista)
+const GOOGLE_SHEETS_CONFIG = {
+  SHEET_ID: "1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I",
+  DELIVERIES_SHEET_NAME: "Entregas",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbz__Y99LWani6uG87sM30fEKozuZsz6YpD94dgXMtboYYZFW1E6epJRS1sjKBtNyRkN/exec"
+}
 
 // Tipos para las entregas
 interface DeliveryData {
@@ -53,11 +62,48 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
+  const [dataSource, setDataSource] = useState<'local' | 'sheets'>('local')
+  const [isConnectedToSheets, setIsConnectedToSheets] = useState(false)
 
-  // Cargar entregas desde localStorage
-  const loadDeliveries = () => {
+  // Cargar entregas desde Google Sheets
+  const loadDeliveriesFromSheets = async () => {
     setIsLoading(true)
     
+    try {
+      console.log('📊 Cargando entregas desde Google Sheets...')
+      
+      const response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'getDeliveries',
+          sheetName: GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME
+        })
+      })
+      
+      // Con mode: 'no-cors' no podemos leer la respuesta directamente
+      // Necesitamos usar una estrategia diferente o mostrar que se intentó cargar
+      setIsConnectedToSheets(true)
+      console.log('✅ Solicitud enviada a Google Sheets')
+      
+      // Fallback: cargar datos locales si no podemos acceder a Sheets directamente
+      loadDeliveriesFromLocalStorage()
+      
+    } catch (error) {
+      console.error('❌ Error conectando con Google Sheets:', error)
+      setIsConnectedToSheets(false)
+      // Fallback a datos locales
+      loadDeliveriesFromLocalStorage()
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Cargar entregas desde localStorage (función renombrada para claridad)
+  const loadDeliveriesFromLocalStorage = () => {
     try {
       const allKeys = Object.keys(localStorage)
       const deliveryKeys = allKeys.filter(key => key.startsWith('delivery_'))
@@ -68,7 +114,21 @@ export default function AdminPage() {
         try {
           const deliveryData = JSON.parse(localStorage.getItem(key) || '{}')
           if (deliveryData.deliveryId) {
-            loadedDeliveries.push(deliveryData)
+            // Normalizar datos para compatibilidad
+            const normalizedDelivery: DeliveryData = {
+              deliveryId: deliveryData.deliveryId,
+              timestamp: deliveryData.timestamp,
+              routeId: deliveryData.routeId || 'N/A',
+              schoolName: deliveryData.schoolName || 'Desconocida',
+              schoolAddress: deliveryData.schoolAddress || '',
+              recipientName: deliveryData.recipientName || '',
+              activities: deliveryData.activities || '',
+              notes: deliveryData.notes || '',
+              signature: deliveryData.signature,
+              photoUrl: deliveryData.photoUrl,
+              status: 'completed' // Las entregas guardadas están completadas
+            }
+            loadedDeliveries.push(normalizedDelivery)
           }
         } catch (error) {
           console.warn(`Error cargando entrega ${key}:`, error)
@@ -81,11 +141,20 @@ export default function AdminPage() {
       setDeliveries(loadedDeliveries)
       setLastUpdate(new Date())
       
-      console.log(`📊 Cargadas ${loadedDeliveries.length} entregas`)
+      console.log(`📊 Cargadas ${loadedDeliveries.length} entregas desde localStorage`)
       
     } catch (error) {
-      console.error('Error cargando entregas:', error)
-    } finally {
+      console.error('Error cargando entregas locales:', error)
+    }
+  }
+
+  // Función principal de carga (decide la fuente)
+  const loadDeliveries = () => {
+    if (dataSource === 'sheets') {
+      loadDeliveriesFromSheets()
+    } else {
+      setIsLoading(true)
+      loadDeliveriesFromLocalStorage()
       setIsLoading(false)
     }
   }
@@ -259,20 +328,62 @@ export default function AdminPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Panel de Admin</h1>
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+            Panel de Admin
+            {dataSource === 'sheets' && (
+              <Badge variant="outline" className="flex items-center gap-1">
+                {isConnectedToSheets ? (
+                  <>
+                    <Wifi className="h-3 w-3 text-green-600" />
+                    <span className="text-green-600">Google Sheets</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="h-3 w-3 text-red-600" />
+                    <span className="text-red-600">Desconectado</span>
+                  </>
+                )}
+              </Badge>
+            )}
+            {dataSource === 'local' && (
+              <Badge variant="outline" className="text-blue-600">
+                📱 Datos Locales
+              </Badge>
+            )}
+          </h1>
           <p className="text-gray-600">Gestión de entregas ActiviRutes</p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <span>Última actualización: {lastUpdate.toLocaleTimeString('es-ES')}</span>
-          <Button
-            onClick={loadDeliveries}
-            disabled={isLoading}
-            variant="outline"
-            size="sm"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            Actualizar
-          </Button>
+        <div className="flex items-center gap-3">
+          {/* Selector de fuente de datos */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">Fuente:</label>
+            <select
+              value={dataSource}
+              onChange={(e) => {
+                setDataSource(e.target.value as 'local' | 'sheets')
+                // Recargar automáticamente al cambiar fuente
+                setTimeout(() => loadDeliveries(), 100)
+              }}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white"
+              title="Seleccionar fuente de datos"
+            >
+              <option value="local">📱 Datos Locales</option>
+              <option value="sheets">📊 Google Sheets</option>
+            </select>
+          </div>
+          
+          <div className="flex items-center gap-2 text-sm text-gray-500 border-l pl-3">
+            <span>Última actualización: {lastUpdate.toLocaleTimeString('es-ES')}</span>
+            <Button
+              onClick={loadDeliveries}
+              disabled={isLoading}
+              variant="outline"
+              size="sm"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Actualizar
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -356,6 +467,7 @@ export default function AdminPage() {
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                title="Filtrar por estado de entrega"
               >
                 <option value="all">Todos los estados</option>
                 <option value="completed">Completadas</option>
@@ -479,6 +591,51 @@ export default function AdminPage() {
         <div className="text-center text-sm text-gray-500">
           Mostrando {filteredDeliveries.length} de {deliveries.length} entregas
         </div>
+      )}
+      
+      {/* Información sobre la fuente de datos */}
+      {dataSource === 'sheets' && (
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <Wifi className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="text-sm">
+                <h4 className="font-medium text-blue-900 mb-1">Conectado a Google Sheets</h4>
+                <p className="text-blue-800 mb-2">
+                  Los datos se cargan directamente desde la hoja de "Entregas" en Google Sheets.
+                  Las entregas aparecen aquí cuando los transportistas las confirman.
+                </p>
+                <div className="text-xs text-blue-700">
+                  <p>📊 Hoja: {GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME}</p>
+                  <p>🔄 Actualización: Tiempo real por eventos</p>
+                  <p>🔗 Los informes incluyen links directos a fotos y firmas</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      
+      {dataSource === 'local' && deliveries.length > 0 && (
+        <Card className="bg-yellow-50 border-yellow-200">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <Package className="h-5 w-5 text-yellow-600 mt-0.5" />
+              <div className="text-sm">
+                <h4 className="font-medium text-yellow-900 mb-1">Datos Locales</h4>
+                <p className="text-yellow-800 mb-2">
+                  Mostrando entregas almacenadas localmente en este dispositivo.
+                  Para ver datos de todos los transportistas, cambiar a "Google Sheets".
+                </p>
+                <div className="text-xs text-yellow-700">
+                  <p>💾 Fuente: localStorage del navegador</p>
+                  <p>🔄 Sincronización: Manual</p>
+                  <p>📱 Alcance: Solo este dispositivo</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

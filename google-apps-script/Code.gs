@@ -17,6 +17,10 @@ function doPost(e) {
       return addDeliveryToSheet(data.data);
     }
     
+    if (data.action === 'getDeliveries') {
+      return getDeliveriesFromSheet(data.sheetName);
+    }
+    
     // Acción no reconocida
     console.error('❌ Acción no válida:', data.action);
     return ContentService
@@ -160,5 +164,83 @@ function getSheetInfo() {
   } catch (error) {
     console.error('❌ Error obteniendo info:', error.toString());
     return { error: error.toString() };
+  }
+}
+
+/**
+ * Obtiene todas las entregas de la hoja especificada
+ */
+function getDeliveriesFromSheet(sheetName = 'Entregas') {
+  try {
+    const SHEET_ID = '1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I';
+    
+    console.log('📊 Obteniendo entregas de la hoja:', sheetName);
+    
+    // Abrir el spreadsheet y la hoja específica
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+    const sheet = spreadsheet.getSheetByName(sheetName);
+    
+    if (!sheet) {
+      console.error('❌ Hoja no encontrada:', sheetName);
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'error',
+          message: 'Hoja no encontrada: ' + sheetName
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Obtener todos los datos de la hoja
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) {
+      // Solo hay header o está vacía
+      console.log('ℹ️ No hay entregas en la hoja');
+      return ContentService
+        .createTextOutput(JSON.stringify({
+          status: 'success',
+          data: [],
+          message: 'No hay entregas registradas'
+        }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Obtener encabezados (primera fila)
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    console.log('📋 Encabezados encontrados:', headers);
+    
+    // Obtener todos los datos (excluyendo header)
+    const dataRange = sheet.getRange(2, 1, lastRow - 1, headers.length);
+    const rows = dataRange.getValues();
+    
+    // Convertir a objetos estructurados
+    const deliveries = rows.map((row, index) => {
+      const delivery = {};
+      headers.forEach((header, colIndex) => {
+        delivery[header] = row[colIndex] || '';
+      });
+      delivery.rowIndex = index + 2; // +2 porque empezamos en fila 2 y los índices son 1-based
+      return delivery;
+    });
+    
+    console.log(`✅ ${deliveries.length} entregas obtenidas exitosamente`);
+    
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        status: 'success',
+        data: deliveries,
+        message: `${deliveries.length} entregas obtenidas`,
+        headers: headers,
+        lastUpdate: new Date().toISOString()
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
+      
+  } catch (error) {
+    console.error('❌ Error obteniendo entregas:', error.toString());
+    return ContentService
+      .createTextOutput(JSON.stringify({
+        status: 'error',
+        message: 'Error obteniendo entregas: ' + error.toString()
+      }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 }
