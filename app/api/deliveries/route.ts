@@ -143,6 +143,25 @@ export async function POST(request: NextRequest) {
     console.log('📤 Enviando a Google Apps Script:', payload)
     console.log('📸 Imágenes incluidas:', body.images ? Object.keys(body.images) : 'ninguna')
 
+    // DIAGNÓSTICO DETALLADO DE IMÁGENES
+    if (body.images) {
+      Object.keys(body.images).forEach(key => {
+        const image = body.images[key]
+        if (image) {
+          console.log(`🔍 ${key}:`, {
+            length: image.length,
+            starts_with: image.substring(0, 50),
+            has_base64_header: image.includes('data:image'),
+            type: typeof image
+          })
+        } else {
+          console.log(`❌ ${key}: vacía o null`)
+        }
+      })
+    } else {
+      console.log('❌ body.images es null/undefined')
+    }
+
     // Hacer request a Google Apps Script CON RESPUESTA VERIFICABLE
     const response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
       method: 'POST',

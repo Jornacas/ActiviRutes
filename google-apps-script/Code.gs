@@ -167,6 +167,25 @@ function addDeliveryToSheet(rowData, images) {
     console.log('📋 Abriendo Google Sheet ID:', SHEET_ID);
     console.log('📊 Datos a insertar:', rowData);
     console.log('📸 Imágenes recibidas:', images ? Object.keys(images) : 'ninguna');
+
+    // DIAGNÓSTICO DETALLADO DE IMÁGENES RECIBIDAS
+    if (images) {
+      Object.keys(images).forEach(key => {
+        const image = images[key];
+        if (image) {
+          console.log(`🔍 RECIBIDO ${key}:`, {
+            length: image.length,
+            starts_with: image.substring(0, 50),
+            has_base64_header: image.includes('data:image'),
+            type: typeof image
+          });
+        } else {
+          console.log(`❌ RECIBIDO ${key}: vacía o null`);
+        }
+      });
+    } else {
+      console.log('❌ images parameter es null/undefined');
+    }
     
     // Procesar imágenes si existen
     let signatureUrl = '';
@@ -307,6 +326,79 @@ function testAddDelivery() {
   }
   
   return resultData;
+}
+
+/**
+ * FUNCIÓN URGENTE: Verificar permisos de carpeta Google Drive
+ */
+function debugGoogleDriveFolderAccess() {
+  const FOLDER_ID = '1CubYYXeUuGBXY9pSbWr5DYkEKQZAIPxP';
+
+  console.log('🔍 DIAGNÓSTICO URGENTE: Acceso a carpeta Google Drive');
+  console.log('📂 ID de carpeta:', FOLDER_ID);
+
+  try {
+    // Verificar acceso básico a la carpeta
+    const folder = DriveApp.getFolderById(FOLDER_ID);
+    console.log('✅ Carpeta accesible');
+    console.log('📁 Nombre:', folder.getName());
+    console.log('📊 Propietario:', folder.getOwner().getEmail());
+    console.log('📋 Descripción:', folder.getDescription());
+
+    // Verificar permisos
+    const editors = folder.getEditors();
+    const viewers = folder.getViewers();
+    console.log('✏️ Editores:', editors.map(e => e.getEmail()));
+    console.log('👀 Visualizadores:', viewers.map(v => v.getEmail()));
+
+    // Verificar archivos existentes
+    const files = folder.getFiles();
+    let fileCount = 0;
+    while (files.hasNext()) {
+      const file = files.next();
+      console.log(`📄 Archivo ${++fileCount}:`, file.getName(), file.getSize(), 'bytes');
+      if (fileCount >= 5) break; // Limitar a 5 archivos para no saturar logs
+    }
+    console.log(`📊 Total archivos verificados: ${fileCount}`);
+
+    // Intentar crear un archivo de prueba
+    console.log('🧪 Creando archivo de prueba...');
+    const testBlob = Utilities.newBlob('Prueba de permisos', 'text/plain', 'test_permisos.txt');
+    const testFile = folder.createFile(testBlob);
+    console.log('✅ Archivo de prueba creado:', testFile.getId());
+
+    // Configurar como público
+    testFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    console.log('✅ Permisos públicos configurados');
+
+    // Generar URLs
+    const viewUrl = `https://drive.google.com/file/d/${testFile.getId()}/view`;
+    const directUrl = `https://drive.google.com/uc?id=${testFile.getId()}`;
+    console.log('📂 URL vista:', viewUrl);
+    console.log('📷 URL directa:', directUrl);
+
+    // Eliminar archivo de prueba
+    testFile.setTrashed(true);
+    console.log('🗑️ Archivo de prueba eliminado');
+
+    return {
+      success: true,
+      message: 'Carpeta accesible y permisos correctos',
+      folderName: folder.getName(),
+      owner: folder.getOwner().getEmail(),
+      fileCount: fileCount
+    };
+
+  } catch (error) {
+    console.error('❌ ERROR CRÍTICO accediendo a carpeta:', error.toString());
+    console.error('❌ Stack trace:', error.stack);
+
+    return {
+      success: false,
+      message: error.toString(),
+      folderId: FOLDER_ID
+    };
+  }
 }
 
 /**
