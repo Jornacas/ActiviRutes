@@ -68,46 +68,86 @@ function doPost(e) {
  */
 function uploadImageToDrive(base64Data, fileName, imageType) {
   try {
-    console.log('📤 Subiendo imagen a Google Drive:', fileName, imageType);
-    
+    console.log('📤 INICIANDO subida imagen a Google Drive:', fileName, imageType);
+    console.log('📊 Tamaño datos base64:', base64Data ? base64Data.length : 'null');
+
+    // Validar datos de entrada
+    if (!base64Data) {
+      throw new Error('Datos base64 vacíos o null');
+    }
+
+    if (!fileName) {
+      throw new Error('Nombre de archivo vacío');
+    }
+
     // Usar tu carpeta específica de Google Drive
     const FOLDER_ID = '1CubYYXeUuGBXY9pSbWr5DYkEKQZAIPxP';
-    
+    console.log('📂 Intentando acceder a carpeta ID:', FOLDER_ID);
+
+    let folder;
     try {
-      const folder = DriveApp.getFolderById(FOLDER_ID);
-      console.log('📁 Usando carpeta específica:', folder.getName());
-    } catch (error) {
-      console.error('❌ No se pudo acceder a la carpeta:', FOLDER_ID);
-      throw new Error('Carpeta de destino no accesible: ' + error.toString());
+      folder = DriveApp.getFolderById(FOLDER_ID);
+      console.log('✅ Carpeta accesible:', folder.getName());
+      console.log('📊 Archivos existentes en carpeta:', folder.getFiles().hasNext());
+    } catch (folderError) {
+      console.error('❌ ERROR CRÍTICO: No se pudo acceder a la carpeta:', FOLDER_ID);
+      console.error('❌ Detalles error carpeta:', folderError.toString());
+      throw new Error('Carpeta de destino no accesible: ' + folderError.toString());
     }
     
-    const folder = DriveApp.getFolderById(FOLDER_ID);
-    
     // Convertir base64 a blob
-    const base64 = base64Data.split(',')[1]; // Remover "data:image/...;base64,"
-    const binaryData = Utilities.base64Decode(base64);
-    const blob = Utilities.newBlob(binaryData, 'image/jpeg', fileName);
-    
-    // Subir archivo a Drive
-    const file = folder.createFile(blob);
-    
-    // Hacer el archivo público para visualización
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    
-    // Obtener URL pública
-    const fileUrl = `https://drive.google.com/file/d/${file.getId()}/view`;
-    const directUrl = `https://drive.google.com/uc?id=${file.getId()}`; // URL directa para imágenes
-    
-    console.log('✅ Imagen subida exitosamente:', fileUrl);
-    
-    return createJSONResponse({
-      status: 'success',
-      message: 'Imagen subida correctamente',
-      fileId: file.getId(),
-      fileUrl: fileUrl,
-      directUrl: directUrl,
-      fileName: fileName
-    });
+    console.log('🔄 Procesando datos base64...');
+
+    let base64Clean;
+    if (base64Data.includes(',')) {
+      base64Clean = base64Data.split(',')[1]; // Remover "data:image/...;base64,"
+      console.log('✅ Header base64 removido');
+    } else {
+      base64Clean = base64Data;
+      console.log('⚠️ Datos base64 sin header detectado');
+    }
+
+    console.log('📊 Tamaño base64 limpio:', base64Clean.length);
+
+    try {
+      const binaryData = Utilities.base64Decode(base64Clean);
+      console.log('✅ Decodificación base64 exitosa');
+
+      const blob = Utilities.newBlob(binaryData, 'image/jpeg', fileName);
+      console.log('✅ Blob creado:', blob.getSize(), 'bytes');
+
+      // Subir archivo a Drive
+      console.log('📤 Creando archivo en Google Drive...');
+      const file = folder.createFile(blob);
+      console.log('✅ Archivo creado con ID:', file.getId());
+
+      // Hacer el archivo público para visualización
+      console.log('🔓 Configurando permisos públicos...');
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      console.log('✅ Permisos configurados');
+
+      // Obtener URL pública
+      const fileId = file.getId();
+      const fileUrl = `https://drive.google.com/file/d/${fileId}/view`;
+      const directUrl = `https://drive.google.com/uc?id=${fileId}`; // URL directa para imágenes
+
+      console.log('✅ Imagen subida exitosamente!');
+      console.log('📂 URL vista:', fileUrl);
+      console.log('📷 URL directa:', directUrl);
+
+      return createJSONResponse({
+        status: 'success',
+        message: 'Imagen subida correctamente',
+        fileId: fileId,
+        fileUrl: fileUrl,
+        directUrl: directUrl,
+        fileName: fileName
+      });
+
+    } catch (conversionError) {
+      console.error('❌ Error en conversión/subida:', conversionError.toString());
+      throw new Error('Error procesando imagen: ' + conversionError.toString());
+    }
     
   } catch (error) {
     console.error('❌ Error subiendo imagen:', error.toString());
@@ -143,13 +183,15 @@ function addDeliveryToSheet(rowData, images) {
           if (signatureData.status === 'success') {
             signatureUrl = signatureData.directUrl;
             console.log('✅ Firma subida:', signatureUrl);
+          } else {
+            console.error('❌ Error en respuesta firma:', signatureData.message);
           }
         } catch (signatureError) {
-          console.warn('⚠️ Error subiendo firma:', signatureError);
+          console.error('❌ Error crítico subiendo firma:', signatureError.toString());
         }
       }
       
-      // Subir foto si existe  
+      // Subir foto si existe
       if (images.photo) {
         console.log('📸 Procesando foto...');
         try {
@@ -159,9 +201,11 @@ function addDeliveryToSheet(rowData, images) {
           if (photoData.status === 'success') {
             photoUrl = photoData.directUrl;
             console.log('✅ Foto subida:', photoUrl);
+          } else {
+            console.error('❌ Error en respuesta foto:', photoData.message);
           }
         } catch (photoError) {
-          console.warn('⚠️ Error subiendo foto:', photoError);
+          console.error('❌ Error crítico subiendo foto:', photoError.toString());
         }
       }
     }
@@ -263,6 +307,68 @@ function testAddDelivery() {
   }
   
   return resultData;
+}
+
+/**
+ * Función de prueba para Google Drive upload
+ */
+function testGoogleDriveUpload() {
+  console.log('🧪 Iniciando prueba de subida a Google Drive...');
+
+  // Crear una imagen de prueba pequeña (1x1 pixel PNG en base64)
+  const testImageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const testFileName = `prueba_${Date.now()}.png`;
+
+  try {
+    console.log('📤 Subiendo imagen de prueba:', testFileName);
+
+    const result = uploadImageToDrive(testImageBase64, testFileName, 'test');
+    const resultData = JSON.parse(result.getContent());
+
+    console.log('📥 Resultado:', resultData);
+
+    if (resultData.status === 'success') {
+      console.log('✅ ÉXITO: Imagen subida correctamente');
+      console.log('📂 URL vista:', resultData.fileUrl);
+      console.log('📷 URL directa:', resultData.directUrl);
+
+      // Verificar que el archivo existe en Drive
+      try {
+        const file = DriveApp.getFileById(resultData.fileId);
+        console.log('✅ Archivo verificado en Drive:', file.getName(), file.getSize(), 'bytes');
+
+        // Eliminar archivo de prueba
+        file.setTrashed(true);
+        console.log('🗑️ Archivo de prueba eliminado');
+
+        return {
+          success: true,
+          message: 'Prueba de Google Drive completada exitosamente',
+          fileUrl: resultData.fileUrl,
+          directUrl: resultData.directUrl
+        };
+      } catch (verifyError) {
+        console.error('❌ Error verificando archivo:', verifyError.toString());
+        return {
+          success: false,
+          message: 'Error verificando archivo: ' + verifyError.toString()
+        };
+      }
+    } else {
+      console.error('❌ Error en upload:', resultData.message);
+      return {
+        success: false,
+        message: resultData.message
+      };
+    }
+
+  } catch (error) {
+    console.error('❌ Error en prueba:', error.toString());
+    return {
+      success: false,
+      message: error.toString()
+    };
+  }
 }
 
 /**

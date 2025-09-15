@@ -336,12 +336,20 @@ export default function AdminPage() {
   // Eliminar entrega individual
   const deleteDelivery = (deliveryId: string) => {
     if (confirm('¿Estás seguro de que quieres eliminar esta entrega?')) {
+      console.log('🗑️ Eliminando entrega:', deliveryId)
+
+      // Remover de localStorage
       localStorage.removeItem(`delivery_${deliveryId}`)
-      loadDeliveries()
+
+      // Actualizar estado inmediatamente (no esperar a loadDeliveries)
+      setDeliveries(prev => prev.filter(d => d.deliveryId !== deliveryId))
+
       // Limpiar selección si estaba seleccionada
       const newSelected = new Set(selectedDeliveries)
       newSelected.delete(deliveryId)
       setSelectedDeliveries(newSelected)
+
+      console.log('✅ Entrega eliminada y estado actualizado')
     }
   }
 
@@ -353,12 +361,21 @@ export default function AdminPage() {
     }
 
     if (confirm(`¿Estás seguro de que quieres eliminar ${selectedDeliveries.size} entregas seleccionadas?`)) {
+      console.log('🗑️ Eliminando entregas seleccionadas:', Array.from(selectedDeliveries))
+
+      // Remover de localStorage
       selectedDeliveries.forEach(deliveryId => {
         localStorage.removeItem(`delivery_${deliveryId}`)
       })
+
+      // Actualizar estado inmediatamente (filtrar entregas eliminadas)
+      setDeliveries(prev => prev.filter(d => !selectedDeliveries.has(d.deliveryId)))
+
+      // Limpiar selecciones
       setSelectedDeliveries(new Set())
       setSelectAll(false)
-      loadDeliveries()
+
+      console.log('✅ Entregas eliminadas y estado actualizado')
       alert(`✅ ${selectedDeliveries.size} entregas eliminadas`)
     }
   }

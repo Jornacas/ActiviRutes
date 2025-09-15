@@ -490,27 +490,41 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData, images?: {
     console.log("📸 Imágenes a enviar:", images ? Object.keys(images) : 'ninguna')
     
     try {
-      // Verificar si está configurada la URL del Google Apps Script
-      if (GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL === "YOUR_SCRIPT_URL_HERE") {
-        throw new Error("Google Apps Script URL no configurada")
-      }
-      
-      const webAppUrl = GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL
-      
-      const response = await fetch(webAppUrl, {
+      // NUEVO: Usar el endpoint de Next.js que puede verificar respuestas
+      const apiUrl = '/api/deliveries'
+
+      console.log("📤 Enviando a API endpoint Next.js:", apiUrl)
+
+      const response = await fetch(apiUrl, {
         method: 'POST',
-        mode: 'no-cors', // Importante para Google Apps Script
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          action: 'addDelivery',
           data: rowData,
           images: images || {} // Incluir imágenes
         })
       })
-      
-      console.log("✅ Datos enviados a Google Sheets")
+
+      console.log("📡 Response status:", response.status)
+
+      if (!response.ok) {
+        throw new Error(`API respondió con status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log("📥 Response data:", result)
+
+      if (result.status !== 'success') {
+        throw new Error(result.message || 'Error desconocido del API')
+      }
+
+      console.log("✅ Datos enviados exitosamente a Google Sheets")
+      console.log("📂 URLs de imágenes recibidas:", {
+        signature: result.signatureUrl,
+        photo: result.photoUrl
+      })
+
       return true
       
     } catch (error) {

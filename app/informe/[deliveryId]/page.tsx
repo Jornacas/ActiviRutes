@@ -125,20 +125,45 @@ export default function InformePage() {
     setLoading(false)
   }, [params.deliveryId])
 
+  // Función para verificar si una imagen es una URL de Google Drive
+  const isGoogleDriveUrl = (url: string) => {
+    return url && (url.includes('drive.google.com') || url.includes('googleusercontent.com'))
+  }
+
+  // Función para obtener URL directa de Google Drive
+  const getDirectGoogleDriveUrl = (url: string) => {
+    if (!isGoogleDriveUrl(url)) return url
+
+    // Extraer file ID de diferentes formatos de URL de Google Drive
+    let fileId = ''
+
+    if (url.includes('/file/d/')) {
+      fileId = url.split('/file/d/')[1].split('/')[0]
+    } else if (url.includes('id=')) {
+      fileId = url.split('id=')[1].split('&')[0]
+    }
+
+    if (fileId) {
+      return `https://drive.google.com/uc?id=${fileId}`
+    }
+
+    return url
+  }
+
   const downloadPhoto = () => {
     if (!delivery?.photoUrl) return
-    
+
     const link = document.createElement('a')
-    link.href = delivery.photoUrl
+    link.href = getDirectGoogleDriveUrl(delivery.photoUrl)
     link.download = `foto_entrega_${delivery.schoolName}_${new Date(delivery.timestamp).toISOString().split('T')[0]}.jpg`
     link.click()
   }
 
   const downloadSignature = () => {
     if (!delivery?.signature) return
-    
+
     const link = document.createElement('a')
-    link.href = delivery.signature
+    link.href = getDirectGoogleDriveUrl(delivery.signature)
     link.download = `firma_entrega_${delivery.schoolName}_${new Date(delivery.timestamp).toISOString().split('T')[0]}.png`
     link.click()
   }
@@ -385,8 +410,8 @@ export default function InformePage() {
             <CardContent>
               <div className="flex justify-center">
                 <div className="border-2 border-gray-200 rounded-lg p-4 bg-white max-w-md w-full">
-                  <img 
-                    src={delivery.signature} 
+                  <img
+                    src={getDirectGoogleDriveUrl(delivery.signature)}
                     alt="Firma digital del receptor"
                     className="w-full h-auto max-h-32 object-contain"
                   />
@@ -418,8 +443,8 @@ export default function InformePage() {
             </CardHeader>
             <CardContent>
               <div className="flex justify-center">
-                <img 
-                  src={delivery.photoUrl} 
+                <img
+                  src={getDirectGoogleDriveUrl(delivery.photoUrl)}
                   alt="Foto de la entrega"
                   className="max-w-full h-auto max-h-96 rounded-lg border shadow-sm"
                 />

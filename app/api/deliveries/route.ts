@@ -118,13 +118,88 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export async function POST(request: NextRequest) {
+  try {
+    console.log('📤 API Endpoint: Enviando entrega a Google Apps Script...')
+
+    const body = await request.json()
+    console.log('📊 Datos recibidos:', body)
+
+    // Validar datos mínimos
+    if (!body.data || !Array.isArray(body.data)) {
+      return NextResponse.json({
+        status: 'error',
+        message: 'Datos de entrega inválidos'
+      }, { status: 400 })
+    }
+
+    // Preparar payload para Google Apps Script
+    const payload = {
+      action: 'addDelivery',
+      data: body.data,
+      images: body.images || {}
+    }
+
+    console.log('📤 Enviando a Google Apps Script:', payload)
+    console.log('📸 Imágenes incluidas:', body.images ? Object.keys(body.images) : 'ninguna')
+
+    // Hacer request a Google Apps Script CON RESPUESTA VERIFICABLE
+    const response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload)
+    })
+
+    console.log('📡 Status response de Google Apps Script:', response.status)
+
+    if (!response.ok) {
+      throw new Error(`Google Apps Script respondió con estado: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('📥 Respuesta de Google Apps Script:', data)
+
+    if (data.status !== 'success') {
+      console.error('❌ Error en Google Apps Script:', data.message)
+      return NextResponse.json({
+        status: 'error',
+        message: data.message || 'Error procesando entrega en Google Apps Script'
+      }, { status: 500 })
+    }
+
+    console.log('✅ Entrega procesada exitosamente')
+    console.log('📂 URLs de imágenes:', {
+      signature: data.signatureUrl,
+      photo: data.photoUrl
+    })
+
+    return NextResponse.json({
+      status: 'success',
+      message: 'Entrega enviada correctamente',
+      data: data,
+      signatureUrl: data.signatureUrl,
+      photoUrl: data.photoUrl
+    })
+
+  } catch (error) {
+    console.error('❌ Error en API POST /api/deliveries:', error)
+
+    return NextResponse.json({
+      status: 'error',
+      message: `Error enviando entrega: ${error instanceof Error ? error.message : 'Error desconocido'}`
+    }, { status: 500 })
+  }
+}
+
 // Permitir CORS para el admin
 export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     },
   })
