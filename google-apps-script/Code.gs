@@ -160,6 +160,12 @@ function uploadImageToDrive(base64Data, fileName, imageType) {
 
 function addDeliveryToSheet(rowData, images) {
   try {
+    console.log('🚨 INICIO addDeliveryToSheet');
+    console.log('🚨 rowData recibido:', rowData);
+    console.log('🚨 images recibido:', images);
+    console.log('🚨 typeof images:', typeof images);
+    console.log('🚨 images keys:', images ? Object.keys(images) : 'N/A');
+
     // Configuración del Google Sheet
     const SHEET_ID = '1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I';
     const SHEET_NAME = 'ENTREGAS';
@@ -190,8 +196,12 @@ function addDeliveryToSheet(rowData, images) {
     // Procesar imágenes si existen
     let signatureUrl = '';
     let photoUrl = '';
-    
+
+    console.log('🚨 ANTES de procesar imágenes');
+    console.log('🚨 images existe?:', !!images);
+
     if (images) {
+      console.log('🚨 DENTRO del if images - iniciando procesamiento');
       // Subir firma si existe
       if (images.signature) {
         console.log('📝 Procesando firma...');
