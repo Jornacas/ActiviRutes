@@ -29,7 +29,7 @@ interface RouteItem {
 const GOOGLE_SHEETS_CONFIG = {
   SHEET_ID: "1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I",
   DELIVERIES_SHEET_NAME: "Entregas", // Nueva hoja para entregas
-  // URL del Google Apps Script Web App - ¡YA CONFIGURADA!
+  // URL del Google Apps Script Web App - ¡RE-DESPLEGADO!
   APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbz__Y99LWani6uG87sM30fEKozuZsz6YpD94dgXMtboYYZFW1E6epJRS1sjKBtNyRkN/exec"
 }
 
