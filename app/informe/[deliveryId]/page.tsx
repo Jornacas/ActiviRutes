@@ -31,7 +31,10 @@ interface DeliveryData {
   notes: string
   signature?: string
   photoUrl?: string
+  signatureUrl?: string // URL directa de Google Drive
+  photoUrlDrive?: string // URL directa de Google Drive
   status: string
+  source?: 'localStorage' | 'sheets'
 }
 
 export default function InformePage() {
@@ -68,6 +71,10 @@ export default function InformePage() {
               notes: parsed.o || '',
               signature: parsed.gd || (parsed.g === 'Y' ? 'Disponible en dispositivo original' : undefined),
               photoUrl: parsed.pd || (parsed.p === 'Y' ? 'Disponible en dispositivo original' : undefined),
+              signatureUrl: parsed.gd, // URL directa de Google Drive si existe
+              photoUrlDrive: parsed.pd, // URL directa de Google Drive si existe
+              signatureUrl: parsed.gd, // URL directa de Google Drive si existe
+              photoUrlDrive: parsed.pd, // URL directa de Google Drive si existe
               status: 'completed'
             }
             console.log('📦 Datos descomprimidos:', normalizedDelivery)
@@ -84,6 +91,10 @@ export default function InformePage() {
               notes: parsed.notes || '',
               signature: parsed.signature,
               photoUrl: parsed.photoUrl,
+              signatureUrl: parsed.signatureUrl, // URL de Google Drive si existe
+              photoUrlDrive: parsed.photoUrlDrive, // URL de Google Drive si existe
+              signatureUrl: parsed.signatureUrl, // URL de Google Drive si existe
+              photoUrlDrive: parsed.photoUrlDrive, // URL de Google Drive si existe
               status: parsed.status || 'completed'
             }
             console.log('📄 Datos formato anterior:', normalizedDelivery)
@@ -393,27 +404,50 @@ export default function InformePage() {
         </Card>
 
         {/* Firma digital */}
-        {delivery.signature && (
+        {(delivery.signature || delivery.signatureUrl) && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center">
                   <PenTool className="h-5 w-5 mr-2" />
                   Firma Digital
+                  {delivery.signatureUrl && (
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      📂 Google Drive
+                    </Badge>
+                  )}
                 </div>
-                <Button onClick={downloadSignature} variant="outline" size="sm">
-                  <Download className="h-4 w-4 mr-2" />
-                  Descargar Firma
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={downloadSignature} variant="outline" size="sm">
+                    <Download className="h-4 w-4 mr-2" />
+                    Descargar
+                  </Button>
+                  {delivery.signatureUrl && (
+                    <Button 
+                      onClick={() => window.open(delivery.signatureUrl, '_blank')} 
+                      variant="outline" 
+                      size="sm"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Ver Original
+                    </Button>
+                  )}
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex justify-center">
                 <div className="border-2 border-gray-200 rounded-lg p-4 bg-white max-w-md w-full">
                   <img
-                    src={getDirectGoogleDriveUrl(delivery.signature)}
+                    src={getDirectGoogleDriveUrl(delivery.signatureUrl || delivery.signature || '')}
                     alt="Firma digital del receptor"
                     className="w-full h-auto max-h-32 object-contain"
+                    onError={(e) => {
+                      // Si falla la imagen de Google Drive, intentar con la local
+                      if (delivery.signature && delivery.signatureUrl && e.currentTarget.src.includes('drive.google.com')) {
+                        e.currentTarget.src = delivery.signature;
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -427,26 +461,49 @@ export default function InformePage() {
         )}
 
         {/* Foto de entrega */}
-        {delivery.photoUrl && (
+        {(delivery.photoUrl || delivery.photoUrlDrive) && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center">
                   <Camera className="h-5 w-5 mr-2" />
                   Foto de Entrega
+                  {delivery.photoUrlDrive && (
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      📂 Google Drive
+                    </Badge>
+                  )}
                 </div>
-                <Button onClick={downloadPhoto} variant="outline" size="sm">
-                  <Download className="h-4 w-4 mr-2" />
-                  Descargar Foto
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={downloadPhoto} variant="outline" size="sm">
+                    <Download className="h-4 w-4 mr-2" />
+                    Descargar
+                  </Button>
+                  {delivery.photoUrlDrive && (
+                    <Button 
+                      onClick={() => window.open(delivery.photoUrlDrive, '_blank')} 
+                      variant="outline" 
+                      size="sm"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Ver Original
+                    </Button>
+                  )}
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex justify-center">
                 <img
-                  src={getDirectGoogleDriveUrl(delivery.photoUrl)}
+                  src={getDirectGoogleDriveUrl(delivery.photoUrlDrive || delivery.photoUrl || '')}
                   alt="Foto de la entrega"
                   className="max-w-full h-auto max-h-96 rounded-lg border shadow-sm"
+                  onError={(e) => {
+                    // Si falla la imagen de Google Drive, intentar con la local
+                    if (delivery.photoUrl && delivery.photoUrlDrive && e.currentTarget.src.includes('drive.google.com')) {
+                      e.currentTarget.src = delivery.photoUrl;
+                    }
+                  }}
                 />
               </div>
               <div className="text-center mt-3">

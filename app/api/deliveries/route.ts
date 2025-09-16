@@ -198,8 +198,8 @@ export async function POST(request: NextRequest) {
       status: 'success',
       message: 'Entrega enviada correctamente',
       data: data,
-      signatureUrl: data.signatureUrl,
-      photoUrl: data.photoUrl
+      signatureUrl: data.imagesProcessed?.signatureUrl,
+      photoUrl: data.imagesProcessed?.photoUrl
     })
 
   } catch (error) {

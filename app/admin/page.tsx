@@ -42,7 +42,10 @@ interface DeliveryData {
   notes: string
   signature?: string
   photoUrl?: string
+  signatureUrl?: string // URL directa de Google Drive
+  photoUrlDrive?: string // URL directa de Google Drive
   status: 'completed' | 'in-progress' | 'pending'
+  source?: 'localStorage' | 'sheets'
 }
 
 interface DeliveryIndex {
@@ -338,16 +341,46 @@ export default function AdminPage() {
     if (confirm('¿Estás seguro de que quieres eliminar esta entrega?')) {
       console.log('🗑️ Eliminando entrega:', deliveryId)
 
-      // Remover de localStorage
-      localStorage.removeItem(`delivery_${deliveryId}`)
+      // Buscar la entrega para determinar el origen
+      const deliveryToDelete = deliveries.find(d => d.deliveryId === deliveryId)
+      
+      if (deliveryToDelete?.source === 'sheets') {
+        console.log('⚠️ Esta entrega viene de Google Sheets y no se puede eliminar desde aquí')
+        alert('Esta entrega viene de Google Sheets y no se puede eliminar desde el admin. Se eliminará del Google Sheets directamente.')
+      } else {
+        // Intentar eliminar con diferentes formatos de clave localStorage
+        const possibleKeys = [
+          `delivery_${deliveryId}`,
+          deliveryId.startsWith('del_') ? `delivery_${deliveryId}` : `delivery_del_${deliveryId}`,
+          deliveryId.replace('sheets_', 'del_')
+        ]
+        
+        let removed = false
+        possibleKeys.forEach(key => {
+          if (localStorage.getItem(key)) {
+            localStorage.removeItem(key)
+            console.log(`🗑️ Eliminado localStorage key: ${key}`)
+            removed = true
+          }
+        })
+        
+        if (!removed) {
+          console.warn('⚠️ No se encontró la entrega en localStorage, eliminando solo del estado')
+        }
+      }
 
       // Actualizar estado inmediatamente (no esperar a loadDeliveries)
       setDeliveries(prev => prev.filter(d => d.deliveryId !== deliveryId))
 
       // Limpiar selección si estaba seleccionada
-      const newSelected = new Set(selectedDeliveries)
-      newSelected.delete(deliveryId)
-      setSelectedDeliveries(newSelected)
+      setSelectedDeliveries(prev => {
+        const newSelected = new Set(prev)
+        newSelected.delete(deliveryId)
+        return newSelected
+      })
+
+      // Actualizar selectAll si es necesario
+      setSelectAll(false)
 
       console.log('✅ Entrega eliminada y estado actualizado')
     }
@@ -360,12 +393,33 @@ export default function AdminPage() {
       return
     }
 
-    if (confirm(`¿Estás seguro de que quieres eliminar ${selectedDeliveries.size} entregas seleccionadas?`)) {
-      console.log('🗑️ Eliminando entregas seleccionadas:', Array.from(selectedDeliveries))
+    const selectedArray = Array.from(selectedDeliveries)
+    const sheetsEntries = selectedArray.filter(id => {
+      const delivery = deliveries.find(d => d.deliveryId === id)
+      return delivery?.source === 'sheets'
+    })
 
-      // Remover de localStorage
+    if (sheetsEntries.length > 0) {
+      alert(`${sheetsEntries.length} de las entregas seleccionadas vienen de Google Sheets y no se pueden eliminar desde aquí.`)
+    }
+
+    if (confirm(`¿Estás seguro de que quieres eliminar ${selectedDeliveries.size} entregas seleccionadas?`)) {
+      console.log('🗑️ Eliminando entregas seleccionadas:', selectedArray)
+
+      // Remover de localStorage (intentar diferentes formatos)
       selectedDeliveries.forEach(deliveryId => {
-        localStorage.removeItem(`delivery_${deliveryId}`)
+        const possibleKeys = [
+          `delivery_${deliveryId}`,
+          deliveryId.startsWith('del_') ? `delivery_${deliveryId}` : `delivery_del_${deliveryId}`,
+          deliveryId.replace('sheets_', 'del_')
+        ]
+        
+        possibleKeys.forEach(key => {
+          if (localStorage.getItem(key)) {
+            localStorage.removeItem(key)
+            console.log(`🗑️ Eliminado localStorage key: ${key}`)
+          }
+        })
       })
 
       // Actualizar estado inmediatamente (filtrar entregas eliminadas)
@@ -627,6 +681,7 @@ export default function AdminPage() {
                     checked={selectAll}
                     onChange={(e) => handleSelectAll(e.target.checked)}
                     className="rounded"
+                    aria-label="Seleccionar todas las entregas"
                   />
                   <span className="text-xs text-gray-600">
                     Todo ({selectedDeliveries.size}/{filteredDeliveries.length})
@@ -686,6 +741,7 @@ export default function AdminPage() {
                       checked={selectedDeliveries.has(delivery.deliveryId)}
                       onChange={(e) => handleSelectDelivery(delivery.deliveryId, e.target.checked)}
                       className="rounded"
+                      aria-label={`Seleccionar entrega ${delivery.schoolName}`}
                     />
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
@@ -721,15 +777,58 @@ export default function AdminPage() {
                   </div>
                   
                   <div className="flex items-center gap-2 ml-4">
-                    {delivery.signature && (
-                      <Badge variant="outline" className="text-xs">
-                        ✍️ Firma
-                      </Badge>
+                    {/* Badges de imágenes con preview */}
+                    {(delivery.signature || delivery.signatureUrl) && (
+                      <div className="relative group">
+                        <Badge 
+                          variant="outline" 
+                          className="text-xs cursor-pointer hover:bg-blue-50"
+                          onClick={() => {
+                            const url = delivery.signatureUrl || delivery.signature;
+                            if (url) window.open(url, '_blank');
+                          }}
+                        >
+                          ✍️ Firma
+                        </Badge>
+                        {delivery.signatureUrl && (
+                          <div className="absolute hidden group-hover:block z-50 top-8 left-0 bg-white border rounded shadow-lg p-2">
+                            <img 
+                              src={delivery.signatureUrl} 
+                              alt="Preview firma" 
+                              className="w-32 h-20 object-contain"
+                              onError={(e) => { 
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
                     )}
-                    {delivery.photoUrl && (
-                      <Badge variant="outline" className="text-xs">
-                        📸 Foto
-                      </Badge>
+                    {(delivery.photoUrl || delivery.photoUrlDrive) && (
+                      <div className="relative group">
+                        <Badge 
+                          variant="outline" 
+                          className="text-xs cursor-pointer hover:bg-green-50"
+                          onClick={() => {
+                            const url = delivery.photoUrlDrive || delivery.photoUrl;
+                            if (url) window.open(url, '_blank');
+                          }}
+                        >
+                          📸 Foto
+                        </Badge>
+                        {delivery.photoUrlDrive && (
+                          <div className="absolute hidden group-hover:block z-50 top-8 left-0 bg-white border rounded shadow-lg p-2">
+                            <img 
+                              src={delivery.photoUrlDrive} 
+                              alt="Preview foto" 
+                              className="w-32 h-20 object-contain"
+                              onError={(e) => { 
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
                     )}
                     
                     <div className="flex gap-1">

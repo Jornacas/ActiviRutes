@@ -1,6 +1,6 @@
 /**
  * ActiviRutes - Google Apps Script para recibir datos de entregas
- * VERSION CON LOGGING A SHEETS
+ * VERSION CON LOGGING A SHEETS Y GOOGLE DRIVE STORAGE
  */
 
 function createJSONResponse(data) {
@@ -31,14 +31,76 @@ function logToSheet(message, data = null) {
   }
 }
 
+// NUEVA FUNCIÓN: Subir imagen a Google Drive
+function uploadImageToDrive(base64Data, fileName, folderId) {
+  try {
+    logToSheet('📤 INICIO uploadImageToDrive', { fileName, folderId });
+
+    // Verificar que tenemos datos
+    if (!base64Data || !fileName) {
+      logToSheet('❌ Datos incompletos para subida', { base64Data: !!base64Data, fileName });
+      return null;
+    }
+
+    // Limpiar el base64 (remover data:image/jpeg;base64, si existe)
+    let cleanBase64 = base64Data;
+    if (base64Data.includes('data:image')) {
+      cleanBase64 = base64Data.split(',')[1];
+    }
+
+    // Convertir base64 a blob
+    const bytes = Utilities.base64Decode(cleanBase64);
+    const blob = Utilities.newBlob(bytes, 'image/jpeg', fileName);
+
+    logToSheet('📤 Blob creado', { size: bytes.length, name: fileName });
+
+    // Obtener la carpeta de destino
+    const folder = DriveApp.getFolderById(folderId);
+    
+    // Subir el archivo
+    const file = folder.createFile(blob);
+    
+    // Hacer el archivo público para lectura
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    // Generar URLs útiles para visualización directa
+    const fileId = file.getId();
+    const viewUrl = `https://drive.google.com/file/d/${fileId}/view`;
+    const directUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
+    
+    logToSheet('✅ Imagen subida exitosamente', { 
+      fileId: fileId, 
+      viewUrl: viewUrl,
+      directUrl: directUrl,
+      size: file.getSize()
+    });
+
+    return {
+      fileId: fileId,
+      url: viewUrl,
+      directUrl: directUrl,
+      name: fileName,
+      size: file.getSize()
+    };
+
+  } catch (error) {
+    logToSheet('❌ ERROR subiendo imagen', { 
+      error: error.toString(),
+      fileName,
+      stack: error.stack
+    });
+    return null;
+  }
+}
+
 function doGet(e) {
   logToSheet('🚨 doGet ejecutado');
 
   return createJSONResponse({
     status: 'success',
-    message: 'ActiviRutes API ready - WITH SHEET LOGGING',
+    message: 'ActiviRutes API ready - WITH SHEET LOGGING & DRIVE STORAGE',
     timestamp: new Date().toISOString(),
-    version: '2.2'
+    version: '3.0'
   });
 }
 
@@ -79,27 +141,51 @@ function addDeliveryToSheet(rowData, images) {
     logToSheet('🚨 rowData recibido', rowData);
     logToSheet('🚨 images recibido', images ? Object.keys(images) : 'ninguna');
 
-    // Diagnóstico detallado de imágenes
-    if (images) {
-      Object.keys(images).forEach(key => {
-        const image = images[key];
-        if (image) {
-          logToSheet(`🔍 ${key} imagen`, {
-            length: image.length,
-            starts_with: image.substring(0, 50),
-            has_base64_header: image.includes('data:image'),
-            type: typeof image
-          });
-        } else {
-          logToSheet(`❌ ${key}`, 'vacía o null');
-        }
-      });
-    }
-
+    // Configuración de Google Drive
+    const DRIVE_FOLDER_ID = '1CubYYXeUuGBXY9pSbWr5DYkEKQZAIPxP';
     const SHEET_ID = '1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I';
     const SHEET_NAME = 'ENTREGAS';
 
-    // Por ahora solo guardamos en Sheets SIN imágenes para testing
+    // Procesar imágenes si existen
+    let photoUrl = '';
+    let signatureUrl = '';
+
+    if (images) {
+      const timestamp = Date.now();
+
+      // Procesar foto
+      if (images.photo) {
+        logToSheet('📸 Procesando foto');
+        const photoResult = uploadImageToDrive(
+          images.photo, 
+          `foto_${timestamp}.jpg`, 
+          DRIVE_FOLDER_ID
+        );
+        if (photoResult) {
+          photoUrl = photoResult.directUrl; // Usar URL directa para visualización
+          logToSheet('✅ Foto subida', { viewUrl: photoResult.url, directUrl: photoResult.directUrl });
+        }
+      }
+
+      // Procesar firma
+      if (images.signature) {
+        logToSheet('✍️ Procesando firma');
+        const signatureResult = uploadImageToDrive(
+          images.signature, 
+          `firma_${timestamp}.jpg`, 
+          DRIVE_FOLDER_ID
+        );
+        if (signatureResult) {
+          signatureUrl = signatureResult.directUrl; // Usar URL directa para visualización
+          logToSheet('✅ Firma subida', { viewUrl: signatureResult.url, directUrl: signatureResult.directUrl });
+        }
+      }
+    }
+
+    // Agregar URLs de imágenes al final del array de datos
+    const finalRowData = [...rowData, photoUrl, signatureUrl];
+
+    // Guardar en Google Sheets
     const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
     const sheet = spreadsheet.getSheetByName(SHEET_NAME);
 
@@ -107,18 +193,28 @@ function addDeliveryToSheet(rowData, images) {
       throw new Error(`No se encontró la hoja "${SHEET_NAME}"`);
     }
 
-    logToSheet('🚨 Insertando en Sheets');
-    sheet.appendRow(rowData);
+    logToSheet('🚨 Insertando en Sheets con URLs', { 
+      photoUrl, 
+      signatureUrl,
+      totalColumns: finalRowData.length 
+    });
+    
+    sheet.appendRow(finalRowData);
 
     const timestamp = new Date().toISOString();
-    logToSheet('🚨 ÉXITO - Datos insertados', timestamp);
+    logToSheet('🚨 ÉXITO - Datos e imágenes insertados', timestamp);
 
     return createJSONResponse({
       status: 'success',
-      message: 'Datos agregados correctamente',
+      message: 'Datos e imágenes agregados correctamente',
       timestamp: timestamp,
-      rowData: rowData,
-      imagesReceived: images ? Object.keys(images) : []
+      rowData: finalRowData,
+      imagesProcessed: {
+        photo: !!photoUrl,
+        signature: !!signatureUrl,
+        photoUrl,
+        signatureUrl
+      }
     });
 
   } catch (error) {
@@ -137,6 +233,30 @@ function testSheetLogging() {
   logToSheet('🧪 Datos de prueba', { test: true, number: 123 });
 
   return 'Logging test completed - check LOGS_DEBUG sheet';
+}
+
+// FUNCIÓN DE PRUEBA PARA GOOGLE DRIVE
+function testDriveUpload() {
+  try {
+    logToSheet('🧪 INICIO TEST DRIVE UPLOAD');
+    
+    // Crear una imagen de prueba (1x1 pixel rojo en base64)
+    const testBase64 = '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxAAPwA/8A8A';
+    
+    const result = uploadImageToDrive(
+      testBase64,
+      'test_image.jpg',
+      '1CubYYXeUuGBXY9pSbWr5DYkEKQZAIPxP'
+    );
+    
+    logToSheet('🧪 RESULTADO TEST DRIVE', result);
+    
+    return `Test completed. Result: ${JSON.stringify(result)}`;
+    
+  } catch (error) {
+    logToSheet('❌ ERROR TEST DRIVE', error.toString());
+    return `Test failed: ${error.toString()}`;
+  }
 }
 
 // Función simplificada para obtener entregas
