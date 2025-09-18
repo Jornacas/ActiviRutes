@@ -59,8 +59,16 @@ export async function GET(request: NextRequest) {
           // Formato español DD/MM/YYYY
           if (dateStr.includes('/')) {
             const [day, month, year] = dateStr.split('/')
-            const dateObj = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timeStr}`)
-            console.log('🔧 dateObj creado:', dateObj)
+            console.log('🔧 Partes fecha:', { day, month, year })
+            
+            // Asegurar formato correcto de hora (añadir segundos si faltan)
+            const timeFormatted = timeStr.length === 5 ? `${timeStr}:00` : timeStr
+            const isoString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timeFormatted}`
+            console.log('🔧 ISO string:', isoString)
+            
+            const dateObj = new Date(isoString)
+            console.log('🔧 dateObj creado:', dateObj, 'isValid:', !isNaN(dateObj.getTime()))
+            
             if (!isNaN(dateObj.getTime())) {
               timestamp = dateObj.toISOString()
               console.log('✅ Fecha procesada correctamente:', timestamp)
