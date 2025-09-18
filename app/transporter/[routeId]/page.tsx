@@ -687,22 +687,35 @@ export default function TransporterApp() {
     }
   }, [])
 
+  // Estado para mostrar info de debug en móvil
+  const [debugInfo, setDebugInfo] = useState<string[]>([])
+  
+  // Función para agregar info de debug visible
+  const addDebugInfo = (message: string) => {
+    setDebugInfo(prev => [message, ...prev].slice(0, 10)) // Solo últimos 10
+  }
+
   // Función para sincronizar estado con Google Sheets
   const syncDeliveryStatus = async (items: RouteItem[]) => {
     try {
+      addDebugInfo('🔄 Sincronizando con Google Sheets...')
       debugLog('🔄 Sincronizando estado con Google Sheets...')
       const response = await fetch('/api/deliveries')
       
       if (!response.ok) {
+        addDebugInfo('❌ Error consultando entregas')
         debugLog('⚠️ No se pudo consultar entregas existentes')
         return
       }
       
       const data = await response.json()
       if (data.status !== 'success') {
+        addDebugInfo('❌ Error respuesta API')
         debugLog('⚠️ Error en respuesta de entregas:', data.message)
         return
       }
+      
+      addDebugInfo(`📊 ${data.deliveries.length} entregas en BD`)
       
       // Filtrar entregas de HOY de esta ruta específica
       const today = new Date().toDateString()
@@ -727,8 +740,10 @@ export default function TransporterApp() {
       })
       
       debugLog(`📋 Entregas encontradas hoy para ruta ${routeId}:`, existingDeliveries.length)
+      addDebugInfo(`🎯 Ruta ${routeId}: ${existingDeliveries.length} entregas hoy`)
       existingDeliveries.forEach((delivery: any, index: number) => {
         debugLog(`  ✅ ${index + 1}. ${delivery.schoolName} - ${delivery.contactPerson}`)
+        addDebugInfo(`✅ ${delivery.schoolName}`)
       })
       
       // Crear nuevo estado basado en entregas existentes
@@ -1249,6 +1264,18 @@ export default function TransporterApp() {
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-gray-800">🚚 Ruta del Transportista</h1>
             <p className="text-sm text-gray-600">ID: <span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs">{routeId}</span></p>
+            
+            {/* Panel de debug móvil */}
+            {DEBUG_MODE && debugInfo.length > 0 && (
+              <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                <strong className="text-blue-800">🔧 Debug:</strong>
+                <div className="mt-1 space-y-1">
+                  {debugInfo.slice(0, 5).map((info, index) => (
+                    <div key={index} className="text-blue-700">{info}</div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Barra de progreso */}
