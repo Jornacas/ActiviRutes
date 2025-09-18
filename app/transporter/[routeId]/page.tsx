@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { MapPin, Clock, Package, CheckCircle, User, Signature, Truck, RefreshCw, Loader2, ArrowUp, ArrowDown, X, Edit3, Navigation, BarChart3, Map, Camera, Trash2, RotateCcw, Save } from "lucide-react"
 
 // 🐛 CONTROL DE DEBUG - Cambiar a true para activar logs de debug
-const DEBUG_MODE = true
+const DEBUG_MODE = false
 
 // Helper para logs condicionales
 const debugLog = (message: string, ...args: any[]) => {

@@ -51,41 +51,70 @@ export async function GET(request: NextRequest) {
       
       console.log('🔍 DEBUG FECHA - dateStr:', dateStr, 'timeStr:', timeStr)
       
-      let timestamp = '2025-01-01T00:00:00.000Z' // Fallback que NO sea fecha actual
+      let timestamp = '2025-01-01T00:00:00.000Z' // Fallback inicial
       
+      // ✅ PROCESAMIENTO MEJORADO DE FECHAS
       try {
-        // Intentar diferentes formatos de fecha de Google Sheets
         if (dateStr && timeStr) {
-          // Formato español DD/MM/YYYY
-          if (dateStr.includes('/')) {
-            const [day, month, year] = dateStr.split('/')
-            console.log('🔧 Partes fecha:', { day, month, year })
-            
-            // Asegurar formato correcto de hora (añadir segundos si faltan)
-            const timeFormatted = timeStr.length === 5 ? `${timeStr}:00` : timeStr
-            const isoString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timeFormatted}`
-            console.log('🔧 ISO string:', isoString)
-            
-            const dateObj = new Date(isoString)
-            console.log('🔧 dateObj creado:', dateObj, 'isValid:', !isNaN(dateObj.getTime()))
-            
-            if (!isNaN(dateObj.getTime())) {
-              timestamp = dateObj.toISOString()
-              console.log('✅ Fecha procesada correctamente:', timestamp)
-            } else {
-              console.log('❌ Fecha inválida después de procesar')
+          // Limpiar strings de espacios y caracteres raros
+          const cleanDateStr = dateStr.toString().trim()
+          const cleanTimeStr = timeStr.toString().trim()
+          
+          console.log('🔧 Procesando fecha limpia:', cleanDateStr, 'hora:', cleanTimeStr)
+          
+          // Formato español DD/MM/YYYY (más común en Google Sheets español)
+          if (cleanDateStr.includes('/')) {
+            const parts = cleanDateStr.split('/')
+            if (parts.length === 3) {
+              const [day, month, year] = parts
+              
+              // Validar que las partes sean números
+              const dayNum = parseInt(day, 10)
+              const monthNum = parseInt(month, 10)
+              const yearNum = parseInt(year, 10)
+              
+              if (dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12 && yearNum >= 2020) {
+                // Formatear hora correctamente
+                let formattedTime = cleanTimeStr
+                if (formattedTime.length === 5 && formattedTime.includes(':')) {
+                  formattedTime += ':00' // Añadir segundos
+                } else if (formattedTime.length === 4 && !formattedTime.includes(':')) {
+                  formattedTime = `${formattedTime.slice(0,2)}:${formattedTime.slice(2)}:00`
+                }
+                
+                // Crear fecha ISO
+                const isoDateString = `${yearNum}-${monthNum.toString().padStart(2, '0')}-${dayNum.toString().padStart(2, '0')}T${formattedTime}`
+                console.log('🔧 ISO generado:', isoDateString)
+                
+                const dateObj = new Date(isoDateString)
+                if (!isNaN(dateObj.getTime())) {
+                  timestamp = dateObj.toISOString()
+                  console.log('✅ Fecha española procesada:', timestamp)
+                }
+              }
             }
           }
           // Formato ISO YYYY-MM-DD
-          else if (dateStr.includes('-')) {
-            const dateObj = new Date(`${dateStr}T${timeStr}`)
+          else if (cleanDateStr.includes('-')) {
+            const formattedTime = cleanTimeStr.length === 5 ? `${cleanTimeStr}:00` : cleanTimeStr
+            const dateObj = new Date(`${cleanDateStr}T${formattedTime}`)
             if (!isNaN(dateObj.getTime())) {
               timestamp = dateObj.toISOString()
+              console.log('✅ Fecha ISO procesada:', timestamp)
+            }
+          }
+          // Intentar parseado directo si Google Sheets devuelve formato especial
+          else {
+            // Último intento: parseado directo
+            const directDate = new Date(cleanDateStr + ' ' + cleanTimeStr)
+            if (!isNaN(directDate.getTime())) {
+              timestamp = directDate.toISOString()
+              console.log('✅ Fecha parseada directamente:', timestamp)
             }
           }
         }
       } catch (error) {
-        console.warn('Error procesando fecha de Google Sheets:', error)
+        console.warn('❌ Error procesando fecha:', error)
       }
       
       console.log('🎯 Timestamp final usado:', timestamp)
