@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import { MapPin, Clock, Package, CheckCircle, User, Signature, Truck, RefreshCw, Loader2, ArrowUp, ArrowDown, X, Edit3, Navigation, BarChart3, Map, Camera, Trash2, RotateCcw, Save } from "lucide-react"
 
 // 🐛 CONTROL DE DEBUG - Cambiar a true para activar logs de debug
-const DEBUG_MODE = false
+const DEBUG_MODE = true
 
 // Helper para logs condicionales
 const debugLog = (message: string, ...args: any[]) => {
@@ -706,12 +706,30 @@ export default function TransporterApp() {
       
       // Filtrar entregas de HOY de esta ruta específica
       const today = new Date().toDateString()
+      debugLog('📅 Fecha de hoy:', today)
+      debugLog('📊 Total entregas en base de datos:', data.deliveries.length)
+      debugLog('🆔 RouteId buscado:', routeId)
+      
+      // Log todas las entregas para debug
+      data.deliveries.forEach((delivery: any, index: number) => {
+        const deliveryDate = new Date(delivery.timestamp).toDateString()
+        debugLog(`  ${index + 1}. RouteId: ${delivery.routeId}, Fecha: ${deliveryDate}, Escuela: ${delivery.schoolName}`)
+      })
+      
       const existingDeliveries = data.deliveries.filter((delivery: any) => {
         const deliveryDate = new Date(delivery.timestamp).toDateString()
-        return delivery.routeId === routeId && deliveryDate === today
+        const matchesRoute = delivery.routeId === routeId
+        const matchesDate = deliveryDate === today
+        
+        debugLog(`🔍 Filtro - RouteId: ${matchesRoute} (${delivery.routeId} === ${routeId}), Fecha: ${matchesDate} (${deliveryDate} === ${today})`)
+        
+        return matchesRoute && matchesDate
       })
       
       debugLog(`📋 Entregas encontradas hoy para ruta ${routeId}:`, existingDeliveries.length)
+      existingDeliveries.forEach((delivery: any, index: number) => {
+        debugLog(`  ✅ ${index + 1}. ${delivery.schoolName} - ${delivery.contactPerson}`)
+      })
       
       // Crear nuevo estado basado en entregas existentes
       const newStatus: {[itemId: string]: DeliveryData} = {}
