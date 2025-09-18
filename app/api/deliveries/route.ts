@@ -41,8 +41,12 @@ export async function GET(request: NextRequest) {
 
     // 🎯 SOLUCIÓN DEFINITIVA: Procesar datos con acceso directo por headers
     const deliveries = data.data.map((row: any) => {
-      console.log('🔍 FILA COMPLETA:', JSON.stringify(row))
-      console.log('🔍 HEADERS DISPONIBLES:', Object.keys(row))
+      // 🚨 DEBUG CRÍTICO: Solo primera fila para ver headers
+      if (row.rowIndex === 2) {
+        console.log('🔍 PRIMERA FILA COMPLETA:', JSON.stringify(row))
+        console.log('🔍 HEADERS DISPONIBLES:', Object.keys(row))
+        console.log('🔍 VALORES PRIMERA FILA:', Object.values(row))
+      }
 
       // 🎯 SOLUCIÓN DEFINITIVA: Acceso directo por headers de Google Sheets
       // Google Apps Script devuelve objetos con headers como claves
@@ -50,6 +54,19 @@ export async function GET(request: NextRequest) {
       const timeStr = row['HORA'] || row['Hora'] || row['hora'] || ''
 
       console.log('🎯 FECHA Y HORA EXTRAÍDAS:', {dateStr, timeStr})
+
+      // 🚨 DEBUG EXTRA: Mostrar TODOS los valores para debug
+      console.log('🚨 DEBUG - Valores específicos:', {
+        'FECHA': row['FECHA'],
+        'HORA': row['HORA'],
+        'fecha': row['fecha'],
+        'hora': row['hora'],
+        'Fecha': row['Fecha'],
+        'Hora': row['Hora'],
+        'primerValor': Object.values(row)[0],
+        'segundoValor': Object.values(row)[1],
+        'totalKeys': Object.keys(row).length
+      })
 
       // Procesamiento robusto de fecha y hora
       let timestamp = new Date().toISOString() // Usar fecha actual como fallback inteligente
