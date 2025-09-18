@@ -718,9 +718,24 @@ export default function TransporterApp() {
       }
       
       const data = await response.json()
+      addDebugInfo(`📄 API respuesta: ${JSON.stringify(data).slice(0, 100)}...`)
+      
       if (data.status !== 'success') {
         addDebugInfo('❌ Error respuesta API')
         debugLog('⚠️ Error en respuesta de entregas:', data.message)
+        return
+      }
+      
+      // Validar que deliveries existe y es un array
+      if (!data.deliveries) {
+        addDebugInfo('❌ data.deliveries es undefined')
+        debugLog('❌ data.deliveries no existe en la respuesta')
+        return
+      }
+      
+      if (!Array.isArray(data.deliveries)) {
+        addDebugInfo('❌ data.deliveries no es array')
+        debugLog('❌ data.deliveries no es un array:', typeof data.deliveries)
         return
       }
       
@@ -731,6 +746,7 @@ export default function TransporterApp() {
       debugLog('📅 Fecha de hoy:', today)
       debugLog('📊 Total entregas en base de datos:', data.deliveries.length)
       debugLog('🆔 RouteId buscado:', routeId)
+      addDebugInfo(`🔍 Buscando ruta: ${routeId}`)
       
       // Log todas las entregas para debug
       data.deliveries.forEach((delivery: any, index: number) => {

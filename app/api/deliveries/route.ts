@@ -49,6 +49,8 @@ export async function GET(request: NextRequest) {
       const dateStr = row[columns[0]] || ''
       const timeStr = row[columns[1]] || '00:00'
       
+      console.log('🔍 DEBUG FECHA - dateStr:', dateStr, 'timeStr:', timeStr)
+      
       let timestamp = new Date().toISOString() // Fallback
       
       try {
@@ -58,8 +60,12 @@ export async function GET(request: NextRequest) {
           if (dateStr.includes('/')) {
             const [day, month, year] = dateStr.split('/')
             const dateObj = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${timeStr}`)
+            console.log('🔧 dateObj creado:', dateObj)
             if (!isNaN(dateObj.getTime())) {
               timestamp = dateObj.toISOString()
+              console.log('✅ Fecha procesada correctamente:', timestamp)
+            } else {
+              console.log('❌ Fecha inválida después de procesar')
             }
           }
           // Formato ISO YYYY-MM-DD
@@ -73,6 +79,8 @@ export async function GET(request: NextRequest) {
       } catch (error) {
         console.warn('Error procesando fecha de Google Sheets:', error)
       }
+      
+      console.log('🎯 Timestamp final usado:', timestamp)
 
       // Obtener URLs de Google Drive si están disponibles
       const photoUrl = row[columns[11]] || '' // URL_FOTO (columna 11)
