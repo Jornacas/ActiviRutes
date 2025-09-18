@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
             let finalDate = null
 
             // Intentar formato DD/MM/YYYY HH:MM (más común en Google Sheets España)
+            // Manejar tanto 15/9/2025 como 15/09/2025
             if (rawDate.includes('/') && rawTime.includes(':')) {
               const [d, m, y] = rawDate.split('/')
               const [h, min] = rawTime.split(':')
@@ -72,7 +73,18 @@ export async function GET(request: NextRequest) {
               if (d && m && y && h && min) {
                 const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${h.padStart(2,'0')}:${min.padStart(2,'0')}:00`
                 finalDate = new Date(isoString)
-                console.log('🕒 Formato DD/MM/YYYY HH:MM:', isoString)
+                console.log('🕒 Formato DD/MM/YYYY HH:MM:', {rawDate, rawTime, isoString, finalDate})
+              }
+            }
+
+            // Fallback adicional: formato D/M/YYYY (sin ceros a la izquierda)
+            if (!finalDate && rawDate.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+              const [d, m, y] = rawDate.split('/')
+              const [h, min] = rawTime.split(':')
+              if (d && m && y && h && min) {
+                const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${h.padStart(2,'0')}:${min.padStart(2,'0')}:00`
+                finalDate = new Date(isoString)
+                console.log('🕒 Formato D/M/YYYY H:MM:', {rawDate, rawTime, isoString, finalDate})
               }
             }
 
