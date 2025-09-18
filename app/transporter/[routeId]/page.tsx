@@ -412,9 +412,9 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
       {!photo && (
         <div className="space-y-2">
           {/* MÉTODO SIMPLE: Captura directa de cámara */}
-          <Button type="button" onClick={openCameraCapture} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-            <Camera className="h-6 w-6" />
-          </Button>
+                              <Button type="button" onClick={openCameraCapture} className="w-full bg-red-600 hover:bg-red-700 text-white">
+                      <Camera className="h-6 w-6" />
+                    </Button>
           
           <div className="flex gap-2">
             <Button type="button" onClick={openFileSelector} variant="outline" className="flex-1">
@@ -648,7 +648,7 @@ export default function TransporterApp() {
     } catch (error) {
       console.error('Error en addDebugLog:', error)
       // Fallback extremo - al menos mostrar en console
-      console.log(`[FALLBACK] ${message}`)
+      debugLog(`[FALLBACK] ${message}`)
     }
   }
 
@@ -692,8 +692,8 @@ export default function TransporterApp() {
     setLoading(true)
     setError(null)
     try {
-      console.log('📱 === CARGANDO RUTA DEL TRANSPORTISTA ===')
-      console.log('🆔 Route ID:', routeId)
+      debugLog('📱 === CARGANDO RUTA DEL TRANSPORTISTA ===')
+      debugLog('🆔 Route ID:', routeId)
       
       // Intentar cargar desde localStorage primero (para mismo dispositivo)
       const savedRoute = localStorage.getItem(`savedRoute_${routeId}`)
@@ -705,7 +705,7 @@ export default function TransporterApp() {
         if (savedDeliveryStatus) {
           setDeliveryStatus(JSON.parse(savedDeliveryStatus))
         }
-        console.log("✅ Ruta cargada desde localStorage:", routeId)
+        debugLog("✅ Ruta cargada desde localStorage:", routeId)
         return
       }
       
@@ -715,9 +715,9 @@ export default function TransporterApp() {
       
       if (encodedData) {
         try {
-          console.log('📦 Intentando decodificar datos desde URL...')
-          const decodedData = JSON.parse(atob(encodedData))
-          console.log('✅ Datos decodificados:', decodedData)
+                  debugLog('📦 Intentando decodificar datos desde URL...')
+        const decodedData = JSON.parse(atob(encodedData))
+        debugLog('✅ Datos decodificados:', decodedData)
           
           // Manejar AMBOS formatos: compacto (s) y completo (items)
           const dataItems = decodedData.s || decodedData.items || []
@@ -747,7 +747,7 @@ export default function TransporterApp() {
           }
           
           setRouteItems(routeItemsFromUrl)
-          console.log(`✅ Ruta cargada desde URL con ${routeItemsFromUrl.length} elementos`)
+          debugLog(`✅ Ruta cargada desde URL con ${routeItemsFromUrl.length} elementos`)
           return
           
         } catch (decodeError) {
@@ -756,7 +756,7 @@ export default function TransporterApp() {
       }
       
       // Fallback: datos de ejemplo mínimos (solo si todo falla)
-      console.log('⚠️ No se encontraron datos de ruta. Usando ejemplo mínimo.')
+              debugLog('⚠️ No se encontraron datos de ruta. Usando ejemplo mínimo.')
       setRouteItems([
         { 
           id: "example-1", 
