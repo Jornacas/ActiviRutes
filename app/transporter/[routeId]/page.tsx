@@ -726,35 +726,37 @@ export default function TransporterApp() {
         return
       }
       
-      // Validar que deliveries existe y es un array
-      if (!data.deliveries) {
-        addDebugInfo('❌ data.deliveries es undefined')
-        debugLog('❌ data.deliveries no existe en la respuesta')
+      // Validar que deliveries existe y es un array (probar ambas propiedades)
+      const deliveries = data.deliveries || data.data || []
+      
+      if (!deliveries || deliveries.length === 0) {
+        addDebugInfo('❌ No hay entregas en respuesta')
+        debugLog('❌ No se encontraron entregas en la respuesta')
         return
       }
       
-      if (!Array.isArray(data.deliveries)) {
-        addDebugInfo('❌ data.deliveries no es array')
-        debugLog('❌ data.deliveries no es un array:', typeof data.deliveries)
+      if (!Array.isArray(deliveries)) {
+        addDebugInfo('❌ Entregas no es array')
+        debugLog('❌ Las entregas no son un array:', typeof deliveries)
         return
       }
       
-      addDebugInfo(`📊 ${data.deliveries.length} entregas en BD`)
+      addDebugInfo(`📊 ${deliveries.length} entregas en BD`)
       
       // Filtrar entregas de HOY de esta ruta específica
       const today = new Date().toDateString()
       debugLog('📅 Fecha de hoy:', today)
-      debugLog('📊 Total entregas en base de datos:', data.deliveries.length)
+      debugLog('📊 Total entregas en base de datos:', deliveries.length)
       debugLog('🆔 RouteId buscado:', routeId)
       addDebugInfo(`🔍 Buscando ruta: ${routeId}`)
       
       // Log todas las entregas para debug
-      data.deliveries.forEach((delivery: any, index: number) => {
+      deliveries.forEach((delivery: any, index: number) => {
         const deliveryDate = new Date(delivery.timestamp).toDateString()
         debugLog(`  ${index + 1}. RouteId: ${delivery.routeId}, Fecha: ${deliveryDate}, Escuela: ${delivery.schoolName}`)
       })
       
-      const existingDeliveries = data.deliveries.filter((delivery: any) => {
+      const existingDeliveries = deliveries.filter((delivery: any) => {
         const deliveryDate = new Date(delivery.timestamp).toDateString()
         const matchesRoute = delivery.routeId === routeId
         const matchesDate = deliveryDate === today

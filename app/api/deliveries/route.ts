@@ -109,7 +109,8 @@ export async function GET(request: NextRequest) {
     
     return NextResponse.json({
       status: 'success',
-      data: deliveries,
+      deliveries: deliveries, // ✅ Cambiar 'data' por 'deliveries' para consistencia
+      data: deliveries, // Mantener 'data' para compatibilidad con Admin
       message: `${deliveries.length} entregas obtenidas desde Google Sheets`,
       lastUpdate: new Date().toISOString(),
       source: 'google_sheets'
