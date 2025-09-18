@@ -88,9 +88,25 @@ export async function GET(request: NextRequest) {
               const [h, min] = rawTime.split(':')
 
               if (d && m && y && h && min) {
-                const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${h.padStart(2,'0')}:${min.padStart(2,'0')}:00`
+                // 🚨 FIX: Asegurar que día y mes tengan 2 dígitos
+                const day = d.padStart(2, '0')
+                const month = m.padStart(2, '0')
+                const hour = h.padStart(2, '0')
+                const minute = min.padStart(2, '0')
+
+                const isoString = `${y}-${month}-${day}T${hour}:${minute}:00`
                 finalDate = new Date(isoString)
-                console.log('🕒 Formato DD/MM/YYYY HH:MM:', {rawDate, rawTime, isoString, finalDate})
+
+                console.log('🕒 PROCESANDO FECHA:', {
+                  rawDate, rawTime,
+                  parsed: {d, m, y, h, min},
+                  formatted: {day, month, hour, minute},
+                  isoString,
+                  isValid: !isNaN(finalDate.getTime()),
+                  finalDate: finalDate.toString()
+                })
+              } else {
+                console.log('❌ Falta algún componente:', {rawDate, rawTime, d, m, y, h, min})
               }
             }
 
@@ -156,7 +172,13 @@ export async function GET(request: NextRequest) {
       data: deliveries, // Mantener 'data' para compatibilidad con Admin
       message: `${deliveries.length} entregas obtenidas desde Google Sheets`,
       lastUpdate: new Date().toISOString(),
-      source: 'google_sheets'
+      source: 'google_sheets',
+      // 🚨 DEBUG TEMPORAL: Incluir estructura de primera fila en respuesta
+      debugInfo: data.data[0] ? {
+        firstRowKeys: Object.keys(data.data[0]),
+        firstRowValues: Object.values(data.data[0]),
+        sampleRow: data.data[0]
+      } : null
     })
 
   } catch (error) {
