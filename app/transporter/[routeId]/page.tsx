@@ -700,7 +700,16 @@ export default function TransporterApp() {
     try {
       addDebugInfo('🔄 Sincronizando con Google Sheets...')
       debugLog('🔄 Sincronizando estado con Google Sheets...')
-      const response = await fetch('/api/deliveries')
+      
+      // Agregar timeout para evitar colgarse
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 segundos
+      
+      addDebugInfo('📡 Consultando API...')
+      const response = await fetch('/api/deliveries', {
+        signal: controller.signal
+      })
+      clearTimeout(timeoutId)
       
       if (!response.ok) {
         addDebugInfo('❌ Error consultando entregas')
@@ -787,6 +796,15 @@ export default function TransporterApp() {
       debugLog('🎯 Estado sincronizado correctamente')
       
     } catch (error) {
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          addDebugInfo('⏰ Timeout API (>10s)')
+        } else {
+          addDebugInfo(`❌ Error: ${error.message}`)
+        }
+      } else {
+        addDebugInfo('❌ Error desconocido')
+      }
       debugLog('❌ Error sincronizando estado:', error)
       // No es crítico, continúa con estado local
     }
