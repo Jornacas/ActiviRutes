@@ -992,7 +992,7 @@ export default function TransporterApp() {
       // Crear datos para Google Sheets con link del informe
       const deliveryDataWithReport = {
         ...newDeliveryData,
-        reportUrl: `${window.location.origin}/informe/${deliveryId}` // Link del informe
+        reportUrl: `${window.location.origin}/informe/${deliveryId}` // Link del informe para Admin
       }
       
       // Preparar imágenes para envío

@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge"
 import { 
   RefreshCw, 
   Search, 
-  Eye, 
   Copy, 
   Trash2, 
   Download,
@@ -69,6 +68,12 @@ export default function AdminPage() {
   const [isConnectedToSheets, setIsConnectedToSheets] = useState(false)
   const [selectedDeliveries, setSelectedDeliveries] = useState<Set<string>>(new Set())
   const [selectAll, setSelectAll] = useState(false)
+  const [isClient, setIsClient] = useState(false) // Nuevo estado para controlar hidratación
+
+  // Efecto para marcar cuando estamos en el cliente
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   // Función para sincronizar datos de Sheets a localStorage
   const syncSheetsDataToLocalStorage = (sheetsDeliveries: DeliveryData[]) => {
@@ -492,6 +497,49 @@ export default function AdminPage() {
     }
   }
 
+  // Función para hacer públicas las imágenes existentes
+  const makeImagesPublic = async () => {
+    if (!confirm('¿Hacer públicas todas las imágenes en Google Drive?\n\nEsto configurará automáticamente todas las imágenes de la carpeta como públicas.')) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      console.log('🔄 Iniciando proceso para hacer públicas las imágenes...');
+      
+      const response = await fetch('/api/deliveries', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'makeImagesPublic'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('📥 Resultado:', result);
+
+      if (result.status === 'success') {
+        alert(`✅ Proceso completado!\n\n${result.message}\n\nAhora las imágenes deberían verse en los previews.`);
+        // Recargar entregas para ver si ahora funcionan las imágenes
+        loadDeliveries();
+      } else {
+        throw new Error(result.message || 'Error desconocido');
+      }
+
+    } catch (error) {
+      console.error('❌ Error:', error);
+      alert(`❌ Error haciendo públicas las imágenes:\n\n${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed':
@@ -516,6 +564,38 @@ export default function AdminPage() {
       default:
         return <Badge variant="outline">Desconocido</Badge>
     }
+  }
+
+  // Función para convertir URLs de Google Drive a URLs directas
+  const getDirectGoogleDriveUrl = (url: string, forEmbed: boolean = false) => {
+    if (!url) return url;
+    
+    // Para URLs base64 (datos locales), devolverlas tal como están
+    if (url.startsWith('data:image/')) {
+      return url;
+    }
+    
+    // Extraer file ID de cualquier formato de Google Drive
+    let fileId = '';
+    
+    if (url.includes('/file/d/')) {
+      fileId = url.split('/d/')[1].split('/')[0];
+    } else if (url.includes('id=')) {
+      fileId = url.split('id=')[1].split('&')[0];
+    }
+    
+    if (fileId) {
+      if (forEmbed) {
+        // Para embebido en <img> tags: usar el formato que mejor funciona
+        // Intentamos primero con el formato directo de Google Drive
+        return `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+      } else {
+        // Para abrir en ventana nueva: usar formato view (este ya funciona)
+        return `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
+      }
+    }
+    
+    return url; // Para cualquier otro formato
   }
 
   return (
@@ -568,7 +648,7 @@ export default function AdminPage() {
           </div>
           
           <div className="flex items-center gap-2 text-sm text-gray-500 border-l pl-3">
-            <span>Última actualización: {lastUpdate.toLocaleTimeString('es-ES')}</span>
+                          <span>Última actualización: {isClient ? lastUpdate.toLocaleTimeString('es-ES') : 'Cargando...'}</span>
             <Button
               onClick={loadDeliveries}
               disabled={isLoading}
@@ -709,6 +789,10 @@ export default function AdminPage() {
                 <Trash2 className="h-4 w-4 mr-2" />
                 Limpiar antiguas
               </Button>
+              <Button onClick={makeImagesPublic} variant="outline" size="sm" disabled={isLoading}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Publicar Imágenes
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -749,7 +833,10 @@ export default function AdminPage() {
                         <h3 className="font-medium text-gray-900">{delivery.schoolName}</h3>
                         {getStatusBadge(delivery.status)}
                         <span className="text-sm text-gray-500">
-                          {new Date(delivery.timestamp).toLocaleDateString('es-ES')} - {new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                          {isClient ? 
+                            `${new Date(delivery.timestamp).toLocaleDateString('es-ES')} - ${new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` 
+                            : 'Cargando...'
+                          }
                         </span>
                       </div>
                     
@@ -784,22 +871,43 @@ export default function AdminPage() {
                           variant="outline" 
                           className="text-xs cursor-pointer hover:bg-blue-50"
                           onClick={() => {
-                            const url = delivery.signatureUrl || delivery.signature;
-                            if (url) window.open(url, '_blank');
+                            // Buscar URL de firma correcta
+                            const url = delivery.signatureUrl || 
+                                       (delivery.signature && delivery.signature.startsWith('http') ? delivery.signature : null);
+                            if (url) {
+                              window.open(getDirectGoogleDriveUrl(url, false), '_blank');
+                            }
                           }}
                         >
                           ✍️ Firma
                         </Badge>
-                        {delivery.signatureUrl && (
-                          <div className="absolute hidden group-hover:block z-50 top-8 left-0 bg-white border rounded shadow-lg p-2">
-                            <img 
-                              src={delivery.signatureUrl} 
-                              alt="Preview firma" 
-                              className="w-32 h-20 object-contain"
-                              onError={(e) => { 
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
+                        {/* Mostrar preview para cualquier URL de firma disponible */}
+                        {(delivery.signatureUrl || (delivery.signature && delivery.signature.startsWith('http'))) && (
+                          <div className="absolute hidden group-hover:block z-50 top-8 left-0 bg-white border rounded shadow-lg p-1 max-w-40">
+                            <div className="relative w-24 h-16 bg-gray-100 rounded flex items-center justify-center">
+                              <img 
+                                src={getDirectGoogleDriveUrl(delivery.signatureUrl || delivery.signature || '', true)} 
+                                alt="Preview firma" 
+                                className="w-24 h-16 object-contain rounded absolute top-0 left-0"
+                                onError={(e) => { 
+                                  console.log('❌ Error preview firma:', e.currentTarget.src);
+                                  e.currentTarget.style.display = 'none';
+                                  const placeholder = e.currentTarget.nextSibling as HTMLElement;
+                                  if (placeholder) placeholder.style.display = 'flex';
+                                }}
+                                                                  onLoad={(e) => {
+                                    console.log('✅ Preview firma cargado correctamente');
+                                    const placeholder = e.currentTarget.nextSibling as HTMLElement;
+                                    if (placeholder) placeholder.style.display = 'none';
+                                  }}
+                              />
+                              <div className="text-xs text-gray-500 text-center hidden flex-col items-center justify-center w-full h-full">
+                                <div>✍️</div>
+                                <div>Firma</div>
+                                <div className="text-xs">Disponible</div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-center text-gray-500 mt-1">Click para ver completa</div>
                           </div>
                         )}
                       </div>
@@ -810,35 +918,49 @@ export default function AdminPage() {
                           variant="outline" 
                           className="text-xs cursor-pointer hover:bg-green-50"
                           onClick={() => {
-                            const url = delivery.photoUrlDrive || delivery.photoUrl;
-                            if (url) window.open(url, '_blank');
+                            // Buscar URL de foto correcta
+                            const url = delivery.photoUrlDrive || 
+                                       (delivery.photoUrl && delivery.photoUrl.startsWith('http') ? delivery.photoUrl : null);
+                            if (url) {
+                              window.open(getDirectGoogleDriveUrl(url, false), '_blank');
+                            }
                           }}
                         >
                           📸 Foto
                         </Badge>
-                        {delivery.photoUrlDrive && (
-                          <div className="absolute hidden group-hover:block z-50 top-8 left-0 bg-white border rounded shadow-lg p-2">
-                            <img 
-                              src={delivery.photoUrlDrive} 
-                              alt="Preview foto" 
-                              className="w-32 h-20 object-contain"
-                              onError={(e) => { 
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
+                        {/* Mostrar preview para cualquier URL de foto disponible */}
+                        {(delivery.photoUrlDrive || (delivery.photoUrl && delivery.photoUrl.startsWith('http'))) && (
+                          <div className="absolute hidden group-hover:block z-50 top-8 left-0 bg-white border rounded shadow-lg p-1 max-w-40">
+                            <div className="relative w-24 h-16 bg-gray-100 rounded flex items-center justify-center">
+                              <img 
+                                src={getDirectGoogleDriveUrl(delivery.photoUrlDrive || delivery.photoUrl || '', true)} 
+                                alt="Preview foto" 
+                                className="w-24 h-16 object-contain rounded absolute top-0 left-0"
+                                onError={(e) => { 
+                                  console.log('❌ Error preview foto:', e.currentTarget.src);
+                                  e.currentTarget.style.display = 'none';
+                                  const placeholder = e.currentTarget.nextSibling as HTMLElement;
+                                  if (placeholder) placeholder.style.display = 'flex';
+                                }}
+                                onLoad={(e) => {
+                                  console.log('✅ Preview foto cargado correctamente');
+                                  const placeholder = e.currentTarget.nextSibling as HTMLElement;
+                                  if (placeholder) placeholder.style.display = 'none';
+                                }}
+                              />
+                              <div className="text-xs text-gray-500 text-center hidden flex-col items-center justify-center w-full h-full">
+                                <div>📸</div>
+                                <div>Foto</div>
+                                <div className="text-xs">Disponible</div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-center text-gray-500 mt-1">Click para ver completa</div>
                           </div>
                         )}
                       </div>
                     )}
                     
                     <div className="flex gap-1">
-                      <Button
-                        onClick={() => window.open(`/informe/${delivery.deliveryId}`, '_blank')}
-                        variant="outline"
-                        size="sm"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
                       <Button
                         onClick={() => copyDeliveryData(delivery)}
                         variant="outline"

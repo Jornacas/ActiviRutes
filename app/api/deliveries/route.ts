@@ -75,8 +75,8 @@ export async function GET(request: NextRequest) {
       }
 
       // Obtener URLs de Google Drive si están disponibles
-      const signatureUrl = row[columns[11]] || '' // URL_FIRMA
-      const photoUrl = row[columns[12]] || '' // URL_FOTO
+      const photoUrl = row[columns[11]] || '' // URL_FOTO (columna 11)
+      const signatureUrl = row[columns[12]] || '' // URL_FIRMA (columna 12)
 
       return {
         deliveryId: `sheets_${row.rowIndex}`, // ID temporal basado en fila
@@ -87,13 +87,13 @@ export async function GET(request: NextRequest) {
         activities: row[columns[5]] || '',
         recipientName: row[columns[6]] || '',
         notes: row[columns[7]] || '',
-        signature: signatureUrl || (row[columns[8]] === 'SÍ' ? 'Disponible en Google Drive' : undefined),
-        photoUrl: photoUrl || (row[columns[9]] === 'SÍ' ? 'Disponible en Google Drive' : undefined),
+        signature: row[columns[8]] === 'SÍ' ? 'Disponible en Google Drive' : undefined,
+        photoUrl: row[columns[9]] === 'SÍ' ? 'Disponible en Google Drive' : undefined,
         reportUrl: row[columns[10]] || '',
         status: 'completed' as const,
         source: 'sheets', // Marcar que viene de Google Sheets
-        signatureUrl: signatureUrl, // URL directa de Google Drive
-        photoUrlDrive: photoUrl // URL directa de Google Drive
+        signatureUrl: signatureUrl, // URL directa de Google Drive para firma
+        photoUrlDrive: photoUrl // URL directa de Google Drive para foto
       }
     })
     
@@ -120,13 +120,43 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('📤 API Endpoint: Enviando entrega a Google Apps Script...')
-
     const body = await request.json()
+    console.log('📊 API POST: Procesando request con action:', body.action)
+    
+    // Si es la acción de hacer públicas las imágenes
+    if (body.action === 'makeImagesPublic') {
+      console.log('🔄 Ejecutando makeImagesPublic...')
+      
+      const payload = {
+        action: 'makeImagesPublic'
+      }
+      
+      const response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Google Apps Script respondió con estado: ${response.status}`)
+      }
+      
+      const result = await response.json()
+      console.log('📥 Resultado de makeImagesPublic:', result)
+      
+      return NextResponse.json(result)
+    }
+    
+    // Si es una entrega normal (acción por defecto)
+    const { data: deliveryData, images } = body
+
+    console.log('📤 API Endpoint: Enviando entrega a Google Apps Script...')
     console.log('📊 Datos recibidos:', body)
 
     // Validar datos mínimos
-    if (!body.data || !Array.isArray(body.data)) {
+    if (!deliveryData || !Array.isArray(deliveryData)) {
       return NextResponse.json({
         status: 'error',
         message: 'Datos de entrega inválidos'
@@ -136,17 +166,17 @@ export async function POST(request: NextRequest) {
     // Preparar payload para Google Apps Script
     const payload = {
       action: 'addDelivery',
-      data: body.data,
-      images: body.images || {}
+              data: deliveryData,
+      images: images || {}
     }
 
     console.log('📤 Enviando a Google Apps Script:', payload)
-    console.log('📸 Imágenes incluidas:', body.images ? Object.keys(body.images) : 'ninguna')
+    console.log('📸 Imágenes incluidas:', images ? Object.keys(images) : 'ninguna')
 
     // DIAGNÓSTICO DETALLADO DE IMÁGENES
-    if (body.images) {
-      Object.keys(body.images).forEach(key => {
-        const image = body.images[key]
+    if (images) {
+      Object.keys(images).forEach(key => {
+        const image = images[key]
         if (image) {
           console.log(`🔍 ${key}:`, {
             length: image.length,
@@ -159,7 +189,7 @@ export async function POST(request: NextRequest) {
         }
       })
     } else {
-      console.log('❌ body.images es null/undefined')
+      console.log('❌ images es null/undefined')
     }
 
     // Hacer request a Google Apps Script CON RESPUESTA VERIFICABLE
@@ -171,35 +201,35 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(payload)
     })
 
-    console.log('📡 Status response de Google Apps Script:', response.status)
+    console.log('�� Status response de Google Apps Script:', response.status)
 
     if (!response.ok) {
       throw new Error(`Google Apps Script respondió con estado: ${response.status}`)
     }
 
-    const data = await response.json()
-    console.log('📥 Respuesta de Google Apps Script:', data)
+    const result = await response.json()
+    console.log('📥 Respuesta de Google Apps Script:', result)
 
-    if (data.status !== 'success') {
-      console.error('❌ Error en Google Apps Script:', data.message)
+    if (result.status !== 'success') {
+      console.error('❌ Error en Google Apps Script:', result.message)
       return NextResponse.json({
         status: 'error',
-        message: data.message || 'Error procesando entrega en Google Apps Script'
+        message: result.message || 'Error procesando entrega en Google Apps Script'
       }, { status: 500 })
     }
 
     console.log('✅ Entrega procesada exitosamente')
     console.log('📂 URLs de imágenes:', {
-      signature: data.signatureUrl,
-      photo: data.photoUrl
+      signature: result.signatureUrl,
+      photo: result.photoUrl
     })
 
     return NextResponse.json({
       status: 'success',
       message: 'Entrega enviada correctamente',
-      data: data,
-      signatureUrl: data.imagesProcessed?.signatureUrl,
-      photoUrl: data.imagesProcessed?.photoUrl
+      data: result,
+      signatureUrl: result.imagesProcessed?.signatureUrl,
+      photoUrl: result.imagesProcessed?.photoUrl
     })
 
   } catch (error) {

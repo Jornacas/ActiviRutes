@@ -60,8 +60,15 @@ function uploadImageToDrive(base64Data, fileName, folderId) {
     // Subir el archivo
     const file = folder.createFile(blob);
     
-    // Hacer el archivo público para lectura
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    // Hacer el archivo público para lectura - COMPLETAMENTE PÚBLICO
+    try {
+      file.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.VIEW);
+      logToSheet('🌐 Archivo configurado como público en internet');
+    } catch (publicError) {
+      // Si falla el acceso público completo, intentar con enlace
+      logToSheet('⚠️ No se pudo hacer público en internet, usando enlace público');
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    }
     
     // Generar URLs útiles para visualización directa
     const fileId = file.getId();
@@ -118,6 +125,10 @@ function doPost(e) {
 
     if (data.action === 'getDeliveries') {
       return getDeliveriesFromSheet(data.sheetName);
+    }
+
+    if (data.action === 'makeImagesPublic') {
+      return createJSONResponse(makeExistingImagesPublic());
     }
 
     logToSheet('❌ Acción no válida', data.action);
@@ -256,6 +267,63 @@ function testDriveUpload() {
   } catch (error) {
     logToSheet('❌ ERROR TEST DRIVE', error.toString());
     return `Test failed: ${error.toString()}`;
+  }
+}
+
+// FUNCIÓN PARA HACER PÚBLICAS LAS IMÁGENES EXISTENTES
+function makeExistingImagesPublic() {
+  try {
+    const DRIVE_FOLDER_ID = '1CubYYXeUuGBXY9pSbWr5DYkEKQZAIPxP';
+    logToSheet('🔄 Iniciando proceso para hacer públicas imágenes existentes');
+    
+    const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    const files = folder.getFiles();
+    
+    let processedCount = 0;
+    let errorCount = 0;
+    
+    while (files.hasNext()) {
+      const file = files.next();
+      
+      try {
+        // Intentar hacer completamente público
+        file.setSharing(DriveApp.Access.ANYONE, DriveApp.Permission.VIEW);
+        logToSheet(`✅ Archivo ${file.getName()} configurado como público`, { fileId: file.getId() });
+        processedCount++;
+      } catch (error) {
+        try {
+          // Si falla, intentar con enlace público
+          file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          logToSheet(`⚠️ Archivo ${file.getName()} configurado con enlace público`, { fileId: file.getId() });
+          processedCount++;
+        } catch (error2) {
+          logToSheet(`❌ Error configurando ${file.getName()}`, { 
+            fileId: file.getId(),
+            error: error2.toString() 
+          });
+          errorCount++;
+        }
+      }
+    }
+    
+    logToSheet('🎉 Proceso completado', { 
+      processed: processedCount, 
+      errors: errorCount 
+    });
+    
+    return {
+      status: 'success',
+      processed: processedCount,
+      errors: errorCount,
+      message: `${processedCount} archivos procesados, ${errorCount} errores`
+    };
+    
+  } catch (error) {
+    logToSheet('❌ ERROR en makeExistingImagesPublic', error.toString());
+    return {
+      status: 'error',
+      message: error.toString()
+    };
   }
 }
 

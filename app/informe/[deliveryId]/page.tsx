@@ -1,237 +1,97 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { 
-  ArrowLeft, 
-  Download, 
-  Share, 
-  Printer, 
+  MapPin, 
+  User, 
+  Package, 
   Calendar,
-  MapPin,
-  User,
-  Package,
-  FileText,
-  Camera,
-  PenTool,
-  ExternalLink
+  Clock,
+  CheckCircle2,
+  ArrowLeft
 } from "lucide-react"
 
 interface DeliveryData {
   deliveryId: string
-  timestamp: string
-  routeId: string
   schoolName: string
-  schoolAddress: string
-  recipientName: string
-  activities: string
-  notes: string
+  contactPerson: string
+  address: string
+  timestamp: string
   signature?: string
-  photoUrl?: string
-  signatureUrl?: string // URL directa de Google Drive
-  photoUrlDrive?: string // URL directa de Google Drive
+  signatureUrl?: string
+  photo?: string
+  photoUrlDrive?: string
   status: string
-  source?: 'localStorage' | 'sheets'
+  deliveredBy: string
+  notes?: string
 }
 
-export default function InformePage() {
-  const params = useParams()
-  const router = useRouter()
+export default function InformePage({ params }: { params: { deliveryId: string } }) {
   const [delivery, setDelivery] = useState<DeliveryData | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const deliveryId = params.deliveryId as string
-    
-    if (deliveryId) {
-      // Cargar datos de la entrega desde localStorage
+    async function loadDelivery() {
       try {
-        const deliveryData = localStorage.getItem(`delivery_${deliveryId}`)
-        if (deliveryData) {
-          const parsed = JSON.parse(deliveryData)
-          
-          // Detectar si son datos comprimidos (nuevo formato) o normales (formato anterior)
-          const isCompressed = parsed.i && parsed.t // Si tiene 'i' y 't' es formato comprimido
-          
-          let normalizedDelivery: DeliveryData
-          
-          if (isCompressed) {
-            // Descomprimir datos del nuevo formato
-            normalizedDelivery = {
-              deliveryId: parsed.i,
-              timestamp: parsed.t,
-              routeId: parsed.r || 'N/A',
-              schoolName: parsed.s || 'Desconocida',
-              schoolAddress: parsed.a || 'Dirección desde ruta compartida',
-              recipientName: parsed.n || '',
-              activities: parsed.c || '',
-              notes: parsed.o || '',
-              signature: parsed.gd || (parsed.g === 'Y' ? 'Disponible en dispositivo original' : undefined),
-              photoUrl: parsed.pd || (parsed.p === 'Y' ? 'Disponible en dispositivo original' : undefined),
-              signatureUrl: parsed.gd, // URL directa de Google Drive si existe
-              photoUrlDrive: parsed.pd, // URL directa de Google Drive si existe
-              signatureUrl: parsed.gd, // URL directa de Google Drive si existe
-              photoUrlDrive: parsed.pd, // URL directa de Google Drive si existe
-              status: 'completed'
-            }
-            console.log('📦 Datos descomprimidos:', normalizedDelivery)
-          } else {
-            // Formato anterior (compatibilidad) o datos de Google Sheets sincronizados
-            normalizedDelivery = {
-              deliveryId: parsed.deliveryId,
-              timestamp: parsed.timestamp,
-              routeId: parsed.routeId || 'N/A',
-              schoolName: parsed.schoolName || 'Desconocida',
-              schoolAddress: parsed.schoolAddress || '',
-              recipientName: parsed.recipientName || '',
-              activities: parsed.activities || '',
-              notes: parsed.notes || '',
-              signature: parsed.signature,
-              photoUrl: parsed.photoUrl,
-              signatureUrl: parsed.signatureUrl, // URL de Google Drive si existe
-              photoUrlDrive: parsed.photoUrlDrive, // URL de Google Drive si existe
-              signatureUrl: parsed.signatureUrl, // URL de Google Drive si existe
-              photoUrlDrive: parsed.photoUrlDrive, // URL de Google Drive si existe
-              status: parsed.status || 'completed'
-            }
-            console.log('📄 Datos formato anterior:', normalizedDelivery)
+        // Primero intentar localStorage
+        const localData = localStorage.getItem('adminDeliveries')
+        if (localData) {
+          const deliveries = JSON.parse(localData)
+          const found = deliveries.find((d: DeliveryData) => d.deliveryId === params.deliveryId)
+          if (found) {
+            setDelivery(found)
+            setLoading(false)
+            return
           }
-          
-          setDelivery(normalizedDelivery)
-        } else {
-          console.error('Entrega no encontrada:', deliveryId)
-          console.log('🔍 Buscando formatos alternativos...')
-          
-          // Intentar buscar con diferentes formatos de ID
-          const alternativeKeys = [
-            `delivery_del_${deliveryId}`,
-            `delivery_${deliveryId.replace('sheets_', 'del_')}`,
-            deliveryId // En caso de que ya incluya el prefijo
-          ]
-          
-          let found = false
-          for (const altKey of alternativeKeys) {
-            const altData = localStorage.getItem(altKey)
-            if (altData) {
-              console.log(`✅ Encontrado con clave alternativa: ${altKey}`)
-              const parsed = JSON.parse(altData)
-              setDelivery(parsed)
-              found = true
-              break
+        }
+
+        // Si no está en localStorage, cargar desde API
+        const response = await fetch('/api/deliveries')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.status === 'success') {
+            const found = data.deliveries.find((d: DeliveryData) => d.deliveryId === params.deliveryId)
+            if (found) {
+              setDelivery(found)
             }
-          }
-          
-          if (!found) {
-            console.log('❌ No se encontró la entrega con ningún formato de ID')
           }
         }
       } catch (error) {
         console.error('Error cargando entrega:', error)
+      } finally {
+        setLoading(false)
       }
     }
-    
-    setLoading(false)
+
+    loadDelivery()
   }, [params.deliveryId])
-
-  // Función para verificar si una imagen es una URL de Google Drive
-  const isGoogleDriveUrl = (url: string) => {
-    return url && (url.includes('drive.google.com') || url.includes('googleusercontent.com'))
-  }
-
-  // Función para obtener URL directa de Google Drive
-  const getDirectGoogleDriveUrl = (url: string) => {
-    if (!isGoogleDriveUrl(url)) return url
-
-    // Extraer file ID de diferentes formatos de URL de Google Drive
-    let fileId = ''
-
-    if (url.includes('/file/d/')) {
-      fileId = url.split('/file/d/')[1].split('/')[0]
-    } else if (url.includes('id=')) {
-      fileId = url.split('id=')[1].split('&')[0]
-    }
-
-    if (fileId) {
-      return `https://drive.google.com/uc?id=${fileId}`
-    }
-
-    return url
-  }
-
-  const downloadPhoto = () => {
-    if (!delivery?.photoUrl) return
-
-    const link = document.createElement('a')
-    link.href = getDirectGoogleDriveUrl(delivery.photoUrl)
-    link.download = `foto_entrega_${delivery.schoolName}_${new Date(delivery.timestamp).toISOString().split('T')[0]}.jpg`
-    link.click()
-  }
-
-  const downloadSignature = () => {
-    if (!delivery?.signature) return
-
-    const link = document.createElement('a')
-    link.href = getDirectGoogleDriveUrl(delivery.signature)
-    link.download = `firma_entrega_${delivery.schoolName}_${new Date(delivery.timestamp).toISOString().split('T')[0]}.png`
-    link.click()
-  }
-
-  const shareReport = async () => {
-    const url = window.location.href
-    
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `Informe de entrega - ${delivery?.schoolName}`,
-          text: `Entrega completada en ${delivery?.schoolName}`,
-          url: url
-        })
-      } catch (error) {
-        console.log('Error compartiendo:', error)
-        copyToClipboard(url)
-      }
-    } else {
-      copyToClipboard(url)
-    }
-  }
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      alert('✅ Link copiado al portapapeles')
-    })
-  }
-
-  const printReport = () => {
-    window.print()
-  }
 
   if (loading) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Cargando informe...</p>
-          </div>
-        </div>
+      <div className="container mx-auto p-4">
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="text-lg">Cargando informe...</div>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
   if (!delivery) {
     return (
-      <div className="container mx-auto p-6">
+      <div className="container mx-auto p-4">
         <Card>
           <CardContent className="p-8 text-center">
-            <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h2 className="text-xl font-medium text-gray-900 mb-2">Informe no encontrado</h2>
-            <p className="text-gray-600 mb-4">
-              No se pudo encontrar la entrega solicitada.
-            </p>
-            <Button onClick={() => router.back()} variant="outline">
+            <div className="text-lg text-red-600">Entrega no encontrada</div>
+            <Button 
+              onClick={() => window.history.back()} 
+              className="mt-4"
+              variant="outline"
+            >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Volver
             </Button>
@@ -241,328 +101,155 @@ export default function InformePage() {
     )
   }
 
-  const formatDate = (timestamp: string) => {
-    if (!timestamp) return 'Fecha no disponible'
-    
-    try {
-      const date = new Date(timestamp)
-      if (isNaN(date.getTime())) {
-        // Intentar parsear diferentes formatos
-        if (timestamp.includes('T')) {
-          const isoDate = new Date(timestamp)
-          if (!isNaN(isoDate.getTime())) {
-            return isoDate.toLocaleDateString('es-ES', {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            })
-          }
-        }
-        return `Fecha: ${timestamp}` // Mostrar el valor original si no se puede parsear
-      }
-      
-      return date.toLocaleDateString('es-ES', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      })
-    } catch (error) {
-      console.warn('Error formateando fecha:', error)
-      return `Fecha: ${timestamp}`
-    }
-  }
+  const getDirectGoogleDriveUrl = (url: string, forEmbed: boolean = false) => {
+    if (!url) return url;
 
-  const formatTime = (timestamp: string) => {
-    if (!timestamp) return 'Hora no disponible'
-    
-    try {
-      const date = new Date(timestamp)
-      if (isNaN(date.getTime())) {
-        // Intentar extraer hora si está en formato "FECHA HORA"
-        if (timestamp.includes(' ')) {
-          const timePart = timestamp.split(' ')[1]
-          if (timePart && timePart.includes(':')) {
-            return timePart
-          }
-        }
-        return `Hora: ${timestamp}`
-      }
-      
-      return date.toLocaleTimeString('es-ES', {
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    } catch (error) {
-      console.warn('Error formateando hora:', error)
-      return `Hora: ${timestamp}`
+    if (url.startsWith('data:image/')) {
+      return url;
     }
+
+    let fileId = '';
+
+    if (url.includes('/file/d/')) {
+      fileId = url.split('/d/')[1].split('/')[0];
+    } else if (url.includes('id=')) {
+      fileId = url.split('id=')[1].split('&')[0];
+    }
+
+    if (fileId) {
+      if (forEmbed) {
+        return `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+      } else {
+        return `https://drive.google.com/file/d/${fileId}/view?usp=sharing`;
+      }
+    }
+
+    return url;
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      {/* Header con navegación */}
-      <div className="flex items-center justify-between mb-6 print:hidden">
-        <Button onClick={() => router.back()} variant="outline">
+    <div className="container mx-auto p-4 max-w-4xl">
+      <div className="mb-6">
+        <Button 
+          onClick={() => window.history.back()} 
+          variant="outline"
+          className="mb-4"
+        >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Volver al Admin
+          Volver
         </Button>
-        
-        <div className="flex gap-2">
-          <Button onClick={shareReport} variant="outline" size="sm">
-            <Share className="h-4 w-4 mr-2" />
-            Compartir
-          </Button>
-          <Button onClick={printReport} variant="outline" size="sm">
-            <Printer className="h-4 w-4 mr-2" />
-            Imprimir
-          </Button>
-        </div>
+        <h1 className="text-3xl font-bold">Informe de Entrega</h1>
+        <p className="text-gray-600">ID: {delivery.deliveryId}</p>
       </div>
 
-      {/* Informe principal */}
-      <div className="space-y-6">
-        {/* Encabezado del informe */}
-        <Card>
-          <CardHeader className="text-center bg-gradient-to-r from-blue-50 to-blue-100">
-            <div className="flex items-center justify-center mb-2">
-              <Package className="h-8 w-8 text-blue-600 mr-3" />
-              <CardTitle className="text-2xl text-blue-900">Informe de Entrega</CardTitle>
-            </div>
-            <p className="text-blue-700">ActiviRutes - Sistema de Gestión de Entregas</p>
-          </CardHeader>
-        </Card>
-
-        {/* Información de la entrega */}
+      <div className="grid gap-6">
+        {/* Información Principal */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
-              <FileText className="h-5 w-5 mr-2" />
-              Datos de la Entrega
+            <CardTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5" />
+              Información de la Entrega
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-gray-500" />
-                  <div>
-                    <p className="text-sm text-gray-600">Fecha</p>
-                    <p className="font-medium">{formatDate(delivery.timestamp)}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-gray-500" />
-                  <div>
-                    <p className="text-sm text-gray-600">Escuela</p>
-                    <p className="font-medium">{delivery.schoolName}</p>
-                    <p className="text-sm text-gray-500">{delivery.schoolAddress}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-gray-500" />
-                  <div>
-                    <p className="text-sm text-gray-600">Receptor</p>
-                    <p className="font-medium">{delivery.recipientName}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Package className="h-4 w-4 text-gray-500" />
-                  <div>
-                    <p className="text-sm text-gray-600">Actividades</p>
-                    <p className="font-medium">{delivery.activities}</p>
-                  </div>
-                </div>
-                
-                <div>
-                  <p className="text-sm text-gray-600">Hora de entrega</p>
-                  <p className="font-medium">{formatTime(delivery.timestamp)}</p>
-                </div>
-                
-                <div>
-                  <p className="text-sm text-gray-600">ID de ruta</p>
-                  <p className="font-mono text-sm">{delivery.routeId}</p>
-                </div>
-              </div>
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-gray-500" />
+              <span className="font-medium">{delivery.schoolName}</span>
             </div>
-            
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-gray-500" />
+              <span>{delivery.contactPerson}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-gray-500" />
+              <span>{delivery.address}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-gray-500" />
+              <span>{new Date(delivery.timestamp).toLocaleDateString('es-ES')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-gray-500" />
+              <span>{new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <Badge variant="outline" className="bg-green-50">
+                {delivery.status}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-gray-500" />
+              <span>Entregado por: {delivery.deliveredBy}</span>
+            </div>
             {delivery.notes && (
-              <div className="pt-4 border-t">
-                <p className="text-sm text-gray-600 mb-1">Notas</p>
-                <p className="text-sm bg-gray-50 p-3 rounded-lg italic">
-                  💬 {delivery.notes}
-                </p>
+              <div className="p-3 bg-gray-50 rounded">
+                <strong>Notas:</strong> {delivery.notes}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Firma digital */}
-        {(delivery.signature || delivery.signatureUrl) && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <PenTool className="h-5 w-5 mr-2" />
-                  Firma Digital
-                  {delivery.signatureUrl && (
-                    <Badge variant="outline" className="ml-2 text-xs">
-                      📂 Google Drive
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={downloadSignature} variant="outline" size="sm">
-                    <Download className="h-4 w-4 mr-2" />
-                    Descargar
-                  </Button>
-                  {delivery.signatureUrl && (
-                    <Button 
-                      onClick={() => window.open(delivery.signatureUrl, '_blank')} 
-                      variant="outline" 
-                      size="sm"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Ver Original
-                    </Button>
-                  )}
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex justify-center">
-                <div className="border-2 border-gray-200 rounded-lg p-4 bg-white max-w-md w-full">
+        {/* Documentación Visual */}
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Firma */}
+          {(delivery.signatureUrl || (delivery.signature && delivery.signature.startsWith('http'))) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  ✍️ Firma de Recepción
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-gray-50 p-4 rounded text-center">
                   <img
-                    src={getDirectGoogleDriveUrl(delivery.signatureUrl || delivery.signature || '')}
-                    alt="Firma digital del receptor"
-                    className="w-full h-auto max-h-32 object-contain"
+                    src={getDirectGoogleDriveUrl(delivery.signatureUrl || delivery.signature || '', true)}
+                    alt="Firma de recepción"
+                    className="max-w-full h-auto mx-auto rounded border"
                     onError={(e) => {
-                      // Si falla la imagen de Google Drive, intentar con la local
-                      if (delivery.signature && delivery.signatureUrl && e.currentTarget.src.includes('drive.google.com')) {
-                        e.currentTarget.src = delivery.signature;
+                      e.currentTarget.style.display = 'none';
+                      const parent = e.currentTarget.parentElement;
+                      if (parent) {
+                        parent.innerHTML = '<div class="text-gray-500 py-8">✍️<br>Firma disponible<br><small>Click para ver</small></div>';
+                        parent.onclick = () => window.open(getDirectGoogleDriveUrl(delivery.signatureUrl || delivery.signature || '', false), '_blank');
+                        parent.style.cursor = 'pointer';
                       }
                     }}
                   />
                 </div>
-              </div>
-              <div className="text-center mt-3">
-                <Badge variant="outline" className="text-xs">
-                  ✍️ Firmado por {delivery.recipientName}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+              </CardContent>
+            </Card>
+          )}
 
-        {/* Foto de entrega */}
-        {(delivery.photoUrl || delivery.photoUrlDrive) && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <Camera className="h-5 w-5 mr-2" />
-                  Foto de Entrega
-                  {delivery.photoUrlDrive && (
-                    <Badge variant="outline" className="ml-2 text-xs">
-                      📂 Google Drive
-                    </Badge>
-                  )}
+          {/* Foto */}
+          {(delivery.photoUrlDrive || (delivery.photo && delivery.photo.startsWith('http'))) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  📸 Fotografía de Entrega
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-gray-50 p-4 rounded text-center">
+                  <img
+                    src={getDirectGoogleDriveUrl(delivery.photoUrlDrive || delivery.photo || '', true)}
+                    alt="Fotografía de entrega"
+                    className="max-w-full h-auto mx-auto rounded border"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const parent = e.currentTarget.parentElement;
+                      if (parent) {
+                        parent.innerHTML = '<div class="text-gray-500 py-8">📸<br>Foto disponible<br><small>Click para ver</small></div>';
+                        parent.onclick = () => window.open(getDirectGoogleDriveUrl(delivery.photoUrlDrive || delivery.photo || '', false), '_blank');
+                        parent.style.cursor = 'pointer';
+                      }
+                    }}
+                  />
                 </div>
-                <div className="flex gap-2">
-                  <Button onClick={downloadPhoto} variant="outline" size="sm">
-                    <Download className="h-4 w-4 mr-2" />
-                    Descargar
-                  </Button>
-                  {delivery.photoUrlDrive && (
-                    <Button 
-                      onClick={() => window.open(delivery.photoUrlDrive, '_blank')} 
-                      variant="outline" 
-                      size="sm"
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Ver Original
-                    </Button>
-                  )}
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex justify-center">
-                <img
-                  src={getDirectGoogleDriveUrl(delivery.photoUrlDrive || delivery.photoUrl || '')}
-                  alt="Foto de la entrega"
-                  className="max-w-full h-auto max-h-96 rounded-lg border shadow-sm"
-                  onError={(e) => {
-                    // Si falla la imagen de Google Drive, intentar con la local
-                    if (delivery.photoUrl && delivery.photoUrlDrive && e.currentTarget.src.includes('drive.google.com')) {
-                      e.currentTarget.src = delivery.photoUrl;
-                    }
-                  }}
-                />
-              </div>
-              <div className="text-center mt-3">
-                <Badge variant="outline" className="text-xs">
-                  📸 Capturada el {formatDate(delivery.timestamp)} a las {formatTime(delivery.timestamp)}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Información del sistema */}
-        <Card className="print:hidden">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <ExternalLink className="h-5 w-5 mr-2" />
-              Información del Informe
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-gray-600">ID de entrega</p>
-                <p className="font-mono text-xs bg-gray-50 p-2 rounded">{delivery.deliveryId}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">URL del informe</p>
-                <p className="font-mono text-xs bg-gray-50 p-2 rounded break-all">
-                  {window.location.href}
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex gap-2 mt-4">
-              <Button 
-                onClick={() => copyToClipboard(window.location.href)} 
-                variant="outline" 
-                size="sm"
-                className="flex-1"
-              >
-                📋 Copiar URL del informe
-              </Button>
-              <Button 
-                onClick={() => window.open('/admin', '_blank')} 
-                variant="outline" 
-                size="sm"
-                className="flex-1"
-              >
-                🎛️ Ir al Panel Admin
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Footer para impresión */}
-      <div className="hidden print:block mt-8 pt-4 border-t text-center text-xs text-gray-500">
-        <p>Informe generado por ActiviRutes - {new Date().toLocaleString('es-ES')}</p>
-        <p className="font-mono">{window.location.href}</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     </div>
   )
