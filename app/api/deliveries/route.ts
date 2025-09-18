@@ -45,13 +45,32 @@ export async function GET(request: NextRequest) {
       // Estructura esperada: FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME | URL_FIRMA | URL_FOTO
       const columns = Object.keys(row)
       
-      // Procesar fecha y hora de Google Sheets
-      const dateStr = row[columns[0]] || ''
-      const timeStr = row[columns[1]] || '00:00'
+      // 🚨 ARREGLO AGRESIVO: Buscar fecha y hora en TODAS las columnas
+      console.log('🔍 TODA LA FILA:', JSON.stringify(row))
+      console.log('🔍 COLUMNAS DISPONIBLES:', Object.keys(row))
       
-      console.log('🔍 DEBUG FECHA - dateStr:', dateStr, 'timeStr:', timeStr)
-      console.log('🔍 RAW ROW:', JSON.stringify(row))
-      console.log('🔍 COLUMNS:', columns)
+      // Buscar fecha en cualquier columna que contenga números y /
+      let dateStr = ''
+      let timeStr = ''
+      
+      Object.values(row).forEach((value, index) => {
+        const str = String(value || '').trim()
+        console.log(`🔍 Columna ${index}: "${str}"`)
+        
+        // Buscar patrón de fecha DD/MM/YYYY o similar
+        if (str.match(/\d{1,2}\/\d{1,2}\/\d{4}/)) {
+          dateStr = str
+          console.log(`✅ FECHA encontrada en columna ${index}: "${dateStr}"`)
+        }
+        
+        // Buscar patrón de hora HH:MM
+        if (str.match(/\d{1,2}:\d{2}/)) {
+          timeStr = str
+          console.log(`✅ HORA encontrada en columna ${index}: "${timeStr}"`)
+        }
+      })
+      
+      console.log('🎯 FECHA Y HORA FINALES:', {dateStr, timeStr})
       
       // ✅ SOLUCIÓN DIRECTA: Usar fechas reales de las entregas
       let timestamp = '2025-01-01T00:00:00.000Z' // Fallback FIJO para detectar fallos
