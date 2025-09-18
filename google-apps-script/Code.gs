@@ -31,6 +31,65 @@ function logToSheet(message, data = null) {
   }
 }
 
+// ✅ NUEVA FUNCIÓN: Construir timestamp ISO a partir de FECHA y HORA de Sheets
+function buildTimestampISO(dateCell, timeCell) {
+  try {
+    const tz = 'Europe/Madrid';
+
+    // Normalizar fecha
+    let year, month, day;
+    if (dateCell instanceof Date) {
+      year = dateCell.getFullYear();
+      month = dateCell.getMonth() + 1;
+      day = dateCell.getDate();
+    } else {
+      const rawDate = String(dateCell || '').trim();
+      if (rawDate.includes('/')) {
+        const [d, m, y] = rawDate.split('/');
+        day = parseInt(d, 10);
+        month = parseInt(m, 10);
+        year = parseInt(y, 10);
+      } else if (rawDate.includes('-')) {
+        const [y, m, d] = rawDate.split('-');
+        day = parseInt(d, 10);
+        month = parseInt(m, 10);
+        year = parseInt(y, 10);
+      }
+    }
+
+    // Normalizar hora
+    let hour = 12, minute = 0, second = 0;
+    if (timeCell instanceof Date) {
+      hour = timeCell.getHours();
+      minute = timeCell.getMinutes();
+      second = timeCell.getSeconds();
+    } else {
+      const rawTime = String(timeCell || '').trim();
+      if (rawTime.includes(':')) {
+        const parts = rawTime.split(':');
+        hour = parseInt(parts[0] || '0', 10);
+        minute = parseInt(parts[1] || '0', 10);
+        second = parseInt(parts[2] || '0', 10);
+      } else if (/^\d{4}$/.test(rawTime)) {
+        hour = parseInt(rawTime.slice(0, 2), 10);
+        minute = parseInt(rawTime.slice(2), 10);
+      } else if (/^\d{3}$/.test(rawTime)) {
+        hour = parseInt(rawTime.slice(0, 1), 10);
+        minute = parseInt(rawTime.slice(1), 10);
+      }
+    }
+
+    if (!year || !month || !day) return '';
+
+    // Crear fecha en UTC para obtener ISO estable
+    const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+    return date.toISOString();
+  } catch (e) {
+    logToSheet('❌ buildTimestampISO error', e.toString());
+    return '';
+  }
+}
+
 // NUEVA FUNCIÓN: Subir imagen a Google Drive
 function uploadImageToDrive(base64Data, fileName, folderId) {
   try {
@@ -358,11 +417,29 @@ function getDeliveriesFromSheet(sheetName = 'ENTREGAS') {
     const dataRange = sheet.getRange(2, 1, lastRow - 1, headers.length);
     const rows = dataRange.getValues();
 
+    // Índices útiles
+    const dateIdx = headers.findIndex(h => ['FECHA', 'Fecha', 'fecha'].indexOf(h) !== -1);
+    const timeIdx = headers.findIndex(h => ['HORA', 'Hora', 'hora'].indexOf(h) !== -1);
+
     const deliveries = rows.map((row, index) => {
       const delivery = {};
       headers.forEach((header, colIndex) => {
         delivery[header] = row[colIndex] || '';
       });
+
+      // Calcular timestamp ISO desde FECHA y HORA
+      const dateCell = dateIdx >= 0 ? row[dateIdx] : '';
+      const timeCell = timeIdx >= 0 ? row[timeIdx] : '';
+      const timestampISO = buildTimestampISO(dateCell, timeCell);
+
+      delivery['TIMESTAMP'] = timestampISO; // Puede ser '' si no se pudo construir
+      delivery['FECHA_STR'] = (dateCell instanceof Date)
+        ? Utilities.formatDate(dateCell, 'Europe/Madrid', 'dd/MM/yyyy')
+        : String(dateCell || '');
+      delivery['HORA_STR'] = (timeCell instanceof Date)
+        ? Utilities.formatDate(timeCell, 'Europe/Madrid', 'HH:mm:ss')
+        : String(timeCell || '');
+
       delivery.rowIndex = index + 2;
       return delivery;
     });

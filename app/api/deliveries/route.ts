@@ -48,106 +48,50 @@ export async function GET(request: NextRequest) {
         console.log('🔍 VALORES PRIMERA FILA:', Object.values(row))
       }
 
+      // ✅ NUEVO: usar timestamp precalculado desde Apps Script si existe
+      const timestampFromAppsScript = row['TIMESTAMP'] || row['timestamp'] || ''
+
       // 🎯 SOLUCIÓN DEFINITIVA: Acceso directo por headers de Google Sheets
-      // Google Apps Script devuelve objetos con headers como claves
       const dateStr = row['FECHA'] || row['Fecha'] || row['fecha'] || ''
       const timeStr = row['HORA'] || row['Hora'] || row['hora'] || ''
 
-      console.log('🎯 FECHA Y HORA EXTRAÍDAS:', {dateStr, timeStr})
+      let timestamp = timestampFromAppsScript
 
-      // 🚨 DEBUG EXTRA: Mostrar TODOS los valores para debug
-      console.log('🚨 DEBUG - Valores específicos:', {
-        'FECHA': row['FECHA'],
-        'HORA': row['HORA'],
-        'fecha': row['fecha'],
-        'hora': row['hora'],
-        'Fecha': row['Fecha'],
-        'Hora': row['Hora'],
-        'primerValor': Object.values(row)[0],
-        'segundoValor': Object.values(row)[1],
-        'totalKeys': Object.keys(row).length
-      })
+      // Si Apps Script no envió timestamp válido, intentamos procesar localmente
+      if (!timestampFromAppsScript) {
+        // Procesamiento robusto de fecha y hora
+        timestamp = new Date().toISOString()
+        try {
+          if (dateStr && timeStr) {
+            const rawDate = String(dateStr).trim()
+            const rawTime = String(timeStr).trim()
 
-      // Procesamiento robusto de fecha y hora
-      let timestamp = new Date().toISOString() // Usar fecha actual como fallback inteligente
-
-      try {
-        if (dateStr && timeStr) {
-          const rawDate = String(dateStr).trim()
-          const rawTime = String(timeStr).trim()
-
-          console.log('🔧 Datos limpios:', {rawDate, rawTime})
-
-          if (rawDate && rawTime) {
-            let finalDate = null
-
-            // Intentar formato DD/MM/YYYY HH:MM (más común en Google Sheets España)
-            // Manejar tanto 15/9/2025 como 15/09/2025
+            let finalDate: Date | null = null
             if (rawDate.includes('/') && rawTime.includes(':')) {
               const [d, m, y] = rawDate.split('/')
               const [h, min] = rawTime.split(':')
-
-              if (d && m && y && h && min) {
-                // 🚨 FIX: Asegurar que día y mes tengan 2 dígitos
-                const day = d.padStart(2, '0')
-                const month = m.padStart(2, '0')
-                const hour = h.padStart(2, '0')
-                const minute = min.padStart(2, '0')
-
-                const isoString = `${y}-${month}-${day}T${hour}:${minute}:00`
-                finalDate = new Date(isoString)
-
-                console.log('🕒 PROCESANDO FECHA:', {
-                  rawDate, rawTime,
-                  parsed: {d, m, y, h, min},
-                  formatted: {day, month, hour, minute},
-                  isoString,
-                  isValid: !isNaN(finalDate.getTime()),
-                  finalDate: finalDate.toString()
-                })
-              } else {
-                console.log('❌ Falta algún componente:', {rawDate, rawTime, d, m, y, h, min})
-              }
+              const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${h.padStart(2,'0')}:${min.padStart(2,'0')}:00`
+              finalDate = new Date(isoString)
             }
-
-            // Fallback adicional: formato D/M/YYYY (sin ceros a la izquierda)
-            if (!finalDate && rawDate.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+            if ((!finalDate || isNaN(finalDate.getTime())) && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(rawDate)) {
               const [d, m, y] = rawDate.split('/')
               const [h, min] = rawTime.split(':')
-              if (d && m && y && h && min) {
-                const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${h.padStart(2,'0')}:${min.padStart(2,'0')}:00`
-                finalDate = new Date(isoString)
-                console.log('🕒 Formato D/M/YYYY H:MM:', {rawDate, rawTime, isoString, finalDate})
-              }
+              const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${h.padStart(2,'0')}:${min.padStart(2,'0')}:00`
+              finalDate = new Date(isoString)
             }
-
-            // Fallback: intentar parseado directo
             if (!finalDate || isNaN(finalDate.getTime())) {
-              const combined = `${rawDate} ${rawTime}`
-              finalDate = new Date(combined)
-              console.log('🕒 Parseado directo:', combined)
+              finalDate = new Date(`${rawDate} ${rawTime}`)
             }
-
-            // Validar fecha resulante
             if (finalDate && !isNaN(finalDate.getTime()) && finalDate.getFullYear() >= 2020) {
               timestamp = finalDate.toISOString()
-              console.log('✅ Fecha procesada exitosamente:', timestamp)
-            } else {
-              console.warn('⚠️ Fecha inválida, usando fallback:', finalDate)
             }
           }
-        } else {
-          console.warn('⚠️ Fecha o hora vacías, usando fallback actual')
-        }
-      } catch (error) {
-        console.error('❌ Error procesando fecha:', error)
+        } catch {}
       }
-
-      console.log('🎯 Timestamp final:', timestamp)
 
       return {
         deliveryId: `sheets_${row.rowIndex}`,
-        timestamp: timestamp,
+        timestamp,
         routeId: row['RUTA_ID'] || row['Ruta_ID'] || row['ruta_id'] || 'N/A',
         schoolName: row['ESCUELA'] || row['Escuela'] || row['escuela'] || 'Desconocida',
         schoolAddress: row['DIRECCION'] || row['Direccion'] || row['direccion'] || '',
