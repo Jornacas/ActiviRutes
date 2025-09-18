@@ -51,65 +51,53 @@ export async function GET(request: NextRequest) {
       
       console.log('🔍 DEBUG FECHA - dateStr:', dateStr, 'timeStr:', timeStr)
       
-      let timestamp = '2025-01-01T00:00:00.000Z' // Fallback inicial
+      // ✅ SOLUCIÓN DIRECTA: Usar fechas reales de las entregas
+      let timestamp = new Date().toISOString() // Fallback actual por ahora
       
-      // ✅ PROCESAMIENTO MEJORADO DE FECHAS
       try {
         if (dateStr && timeStr) {
-          // Limpiar strings de espacios y caracteres raros
-          const cleanDateStr = dateStr.toString().trim()
-          const cleanTimeStr = timeStr.toString().trim()
+          console.log('🔧 Datos brutos:', JSON.stringify({dateStr, timeStr}))
           
-          console.log('🔧 Procesando fecha limpia:', cleanDateStr, 'hora:', cleanTimeStr)
+          // Convertir todo a string y limpiar
+          const rawDate = String(dateStr).trim()
+          const rawTime = String(timeStr).trim()
           
-          // Formato español DD/MM/YYYY (más común en Google Sheets español)
-          if (cleanDateStr.includes('/')) {
-            const parts = cleanDateStr.split('/')
-            if (parts.length === 3) {
-              const [day, month, year] = parts
-              
-              // Validar que las partes sean números
-              const dayNum = parseInt(day, 10)
-              const monthNum = parseInt(month, 10)
-              const yearNum = parseInt(year, 10)
-              
-              if (dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12 && yearNum >= 2020) {
-                // Formatear hora correctamente
-                let formattedTime = cleanTimeStr
-                if (formattedTime.length === 5 && formattedTime.includes(':')) {
-                  formattedTime += ':00' // Añadir segundos
-                } else if (formattedTime.length === 4 && !formattedTime.includes(':')) {
-                  formattedTime = `${formattedTime.slice(0,2)}:${formattedTime.slice(2)}:00`
+          // Si la fecha parece válida (contiene números), procesarla
+          if (rawDate && rawTime && rawDate.match(/\d/)) {
+            // Intentar múltiples formatos
+            const attempts = [
+              // Formato DD/MM/YYYY HH:MM
+              () => {
+                if (rawDate.includes('/')) {
+                  const [d, m, y] = rawDate.split('/')
+                  const time = rawTime.includes(':') ? rawTime : `${rawTime.slice(0,2)}:${rawTime.slice(2)}`
+                  return new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${time}:00`)
                 }
-                
-                // Crear fecha ISO
-                const isoDateString = `${yearNum}-${monthNum.toString().padStart(2, '0')}-${dayNum.toString().padStart(2, '0')}T${formattedTime}`
-                console.log('🔧 ISO generado:', isoDateString)
-                
-                const dateObj = new Date(isoDateString)
-                if (!isNaN(dateObj.getTime())) {
-                  timestamp = dateObj.toISOString()
-                  console.log('✅ Fecha española procesada:', timestamp)
+              },
+              // Formato YYYY-MM-DD HH:MM
+              () => {
+                if (rawDate.includes('-')) {
+                  const time = rawTime.includes(':') ? rawTime : `${rawTime.slice(0,2)}:${rawTime.slice(2)}`
+                  return new Date(`${rawDate}T${time}:00`)
                 }
+              },
+              // Parseado directo combinado
+              () => new Date(`${rawDate} ${rawTime}`),
+              // Solo fecha si hora falla
+              () => new Date(rawDate)
+            ]
+            
+            for (const attempt of attempts) {
+              try {
+                const date = attempt()
+                if (date && !isNaN(date.getTime()) && date.getFullYear() >= 2020) {
+                  timestamp = date.toISOString()
+                  console.log('✅ Fecha procesada:', timestamp, 'desde:', {rawDate, rawTime})
+                  break
+                }
+              } catch (e) {
+                // Intentar siguiente formato
               }
-            }
-          }
-          // Formato ISO YYYY-MM-DD
-          else if (cleanDateStr.includes('-')) {
-            const formattedTime = cleanTimeStr.length === 5 ? `${cleanTimeStr}:00` : cleanTimeStr
-            const dateObj = new Date(`${cleanDateStr}T${formattedTime}`)
-            if (!isNaN(dateObj.getTime())) {
-              timestamp = dateObj.toISOString()
-              console.log('✅ Fecha ISO procesada:', timestamp)
-            }
-          }
-          // Intentar parseado directo si Google Sheets devuelve formato especial
-          else {
-            // Último intento: parseado directo
-            const directDate = new Date(cleanDateStr + ' ' + cleanTimeStr)
-            if (!isNaN(directDate.getTime())) {
-              timestamp = directDate.toISOString()
-              console.log('✅ Fecha parseada directamente:', timestamp)
             }
           }
         }
