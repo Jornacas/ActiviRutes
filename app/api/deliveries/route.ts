@@ -10,15 +10,15 @@ const GOOGLE_SHEETS_CONFIG = {
 export async function GET(request: NextRequest) {
   try {
     console.log('📊 API Endpoint: Obteniendo entregas desde Google Sheets...')
-    
+
     // Crear payload para Google Apps Script
     const payload = {
       action: 'getDeliveries',
       sheetName: GOOGLE_SHEETS_CONFIG.DELIVERIES_SHEET_NAME
     }
-    
+
     console.log('📤 Enviando a Google Apps Script:', payload)
-    
+
     // Hacer request a Google Apps Script
     const response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
       method: 'POST',
@@ -27,155 +27,100 @@ export async function GET(request: NextRequest) {
       },
       body: JSON.stringify(payload)
     })
-    
+
     if (!response.ok) {
       throw new Error(`Google Apps Script respondió con estado: ${response.status}`)
     }
-    
+
     const data = await response.json()
     console.log('📥 Respuesta de Google Apps Script:', data.status, `${data.data?.length || 0} entregas`)
-    
+
     if (data.status !== 'success') {
       throw new Error(data.message || 'Error desconocido de Google Apps Script')
     }
-    
-    // Procesar datos para el formato esperado por el admin
+
+    // 🎯 SOLUCIÓN DEFINITIVA: Procesar datos con acceso directo por headers
     const deliveries = data.data.map((row: any) => {
-      // Mapear columnas de Google Sheets a formato del admin
-      // Estructura esperada: FECHA | HORA | RUTA_ID | ESCUELA | DIRECCION | ACTIVIDADES | RECEPTOR | NOTAS | TIENE_FIRMA | TIENE_FOTO | LINK_INFORME | URL_FIRMA | URL_FOTO
-      const columns = Object.keys(row)
-      
-      // 🚨 ARREGLO AGRESIVO: Buscar fecha y hora en TODAS las columnas
-      console.log('🔍 TODA LA FILA:', JSON.stringify(row))
-      console.log('🔍 COLUMNAS DISPONIBLES:', Object.keys(row))
-      
-      // Buscar fecha en cualquier columna que contenga números y /
-      let dateStr = ''
-      let timeStr = ''
-      
-      Object.values(row).forEach((value, index) => {
-        const str = String(value || '').trim()
-        console.log(`🔍 Columna ${index}: "${str}"`)
-        
-        // Buscar patrón de fecha DD/MM/YYYY o similar
-        if (str.match(/\d{1,2}\/\d{1,2}\/\d{4}/)) {
-          dateStr = str
-          console.log(`✅ FECHA encontrada en columna ${index}: "${dateStr}"`)
-        }
-        
-        // Buscar patrón de hora HH:MM
-        if (str.match(/\d{1,2}:\d{2}/)) {
-          timeStr = str
-          console.log(`✅ HORA encontrada en columna ${index}: "${timeStr}"`)
-        }
-      })
-      
-      console.log('🎯 FECHA Y HORA FINALES:', {dateStr, timeStr})
-      
-      // ✅ SOLUCIÓN DIRECTA: Usar fechas reales de las entregas
-      let timestamp = '2025-01-01T00:00:00.000Z' // Fallback FIJO para detectar fallos
-      
+      console.log('🔍 FILA COMPLETA:', JSON.stringify(row))
+      console.log('🔍 HEADERS DISPONIBLES:', Object.keys(row))
+
+      // 🎯 SOLUCIÓN DEFINITIVA: Acceso directo por headers de Google Sheets
+      // Google Apps Script devuelve objetos con headers como claves
+      const dateStr = row['FECHA'] || row['Fecha'] || row['fecha'] || ''
+      const timeStr = row['HORA'] || row['Hora'] || row['hora'] || ''
+
+      console.log('🎯 FECHA Y HORA EXTRAÍDAS:', {dateStr, timeStr})
+
+      // Procesamiento robusto de fecha y hora
+      let timestamp = new Date().toISOString() // Usar fecha actual como fallback inteligente
+
       try {
         if (dateStr && timeStr) {
-          console.log('🔧 Datos brutos:', JSON.stringify({dateStr, timeStr}))
-          
-          // Convertir todo a string y limpiar
           const rawDate = String(dateStr).trim()
           const rawTime = String(timeStr).trim()
-          
-          // Si la fecha parece válida (contiene números), procesarla
-          if (rawDate && rawTime && rawDate.match(/\d/)) {
-            // Intentar múltiples formatos
-                         const attempts = [
-               // Formato DD/MM/YYYY HH:MM (más común en Google Sheets)
-               () => {
-                 if (rawDate.includes('/')) {
-                   const [d, m, y] = rawDate.split('/')
-                   
-                   // Procesar hora más robustamente
-                   let time = rawTime
-                   if (rawTime.includes(':')) {
-                     // Ya tiene formato HH:MM, añadir segundos si falta
-                     time = rawTime.length === 5 ? `${rawTime}:00` : rawTime
-                   } else if (rawTime.length === 4) {
-                     // Formato HHMM → HH:MM:00
-                     time = `${rawTime.slice(0,2)}:${rawTime.slice(2)}:00`
-                   } else if (rawTime.length === 3) {
-                     // Formato HMM → H:MM:00  
-                     time = `${rawTime.slice(0,1)}:${rawTime.slice(1)}:00`
-                   } else {
-                     // Default si hora es rara
-                     time = '12:00:00'
-                   }
-                   
-                   const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${time}`
-                   console.log('🕒 Procesando DD/MM/YYYY:', {rawDate, rawTime, time, isoString})
-                   return new Date(isoString)
-                 }
-               },
-               // Formato YYYY-MM-DD HH:MM
-               () => {
-                 if (rawDate.includes('-')) {
-                   let time = rawTime.includes(':') ? rawTime : `${rawTime.slice(0,2)}:${rawTime.slice(2)}`
-                   time = time.length === 5 ? `${time}:00` : time
-                   const isoString = `${rawDate}T${time}`
-                   console.log('🕒 Procesando YYYY-MM-DD:', {rawDate, rawTime, time, isoString})
-                   return new Date(isoString)
-                 }
-               },
-               // Parseado directo combinado (Google Sheets a veces envía formato especial)
-               () => {
-                 const combined = `${rawDate} ${rawTime}`
-                 console.log('🕒 Parseado directo:', combined)
-                 return new Date(combined)
-               }
-             ]
-            
-            for (const attempt of attempts) {
-              try {
-                const date = attempt()
-                if (date && !isNaN(date.getTime()) && date.getFullYear() >= 2020) {
-                  timestamp = date.toISOString()
-                  console.log('✅ Fecha procesada:', timestamp, 'desde:', {rawDate, rawTime})
-                  break
-                }
-              } catch (e) {
-                // Intentar siguiente formato
+
+          console.log('🔧 Datos limpios:', {rawDate, rawTime})
+
+          if (rawDate && rawTime) {
+            let finalDate = null
+
+            // Intentar formato DD/MM/YYYY HH:MM (más común en Google Sheets España)
+            if (rawDate.includes('/') && rawTime.includes(':')) {
+              const [d, m, y] = rawDate.split('/')
+              const [h, min] = rawTime.split(':')
+
+              if (d && m && y && h && min) {
+                const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${h.padStart(2,'0')}:${min.padStart(2,'0')}:00`
+                finalDate = new Date(isoString)
+                console.log('🕒 Formato DD/MM/YYYY HH:MM:', isoString)
               }
             }
+
+            // Fallback: intentar parseado directo
+            if (!finalDate || isNaN(finalDate.getTime())) {
+              const combined = `${rawDate} ${rawTime}`
+              finalDate = new Date(combined)
+              console.log('🕒 Parseado directo:', combined)
+            }
+
+            // Validar fecha resulante
+            if (finalDate && !isNaN(finalDate.getTime()) && finalDate.getFullYear() >= 2020) {
+              timestamp = finalDate.toISOString()
+              console.log('✅ Fecha procesada exitosamente:', timestamp)
+            } else {
+              console.warn('⚠️ Fecha inválida, usando fallback:', finalDate)
+            }
           }
+        } else {
+          console.warn('⚠️ Fecha o hora vacías, usando fallback actual')
         }
       } catch (error) {
-        console.warn('❌ Error procesando fecha:', error)
+        console.error('❌ Error procesando fecha:', error)
       }
-      
-      console.log('🎯 Timestamp final usado:', timestamp)
 
-      // Obtener URLs de Google Drive si están disponibles
-      const photoUrl = row[columns[11]] || '' // URL_FOTO (columna 11)
-      const signatureUrl = row[columns[12]] || '' // URL_FIRMA (columna 12)
+      console.log('🎯 Timestamp final:', timestamp)
 
       return {
-        deliveryId: `sheets_${row.rowIndex}`, // ID temporal basado en fila
+        deliveryId: `sheets_${row.rowIndex}`,
         timestamp: timestamp,
-        routeId: row[columns[2]] || 'N/A',
-        schoolName: row[columns[3]] || 'Desconocida',
-        schoolAddress: row[columns[4]] || '',
-        activities: row[columns[5]] || '',
-        recipientName: row[columns[6]] || '',
-        notes: row[columns[7]] || '',
-        signature: row[columns[8]] === 'SÍ' ? 'Disponible en Google Drive' : undefined,
-        photoUrl: row[columns[9]] === 'SÍ' ? 'Disponible en Google Drive' : undefined,
-        reportUrl: row[columns[10]] || '',
+        routeId: row['RUTA_ID'] || row['Ruta_ID'] || row['ruta_id'] || 'N/A',
+        schoolName: row['ESCUELA'] || row['Escuela'] || row['escuela'] || 'Desconocida',
+        schoolAddress: row['DIRECCION'] || row['Direccion'] || row['direccion'] || '',
+        activities: row['ACTIVIDADES'] || row['Actividades'] || row['actividades'] || '',
+        recipientName: row['RECEPTOR'] || row['Receptor'] || row['receptor'] || '',
+        notes: row['NOTAS'] || row['Notas'] || row['notas'] || '',
+        signature: (row['TIENE_FIRMA'] || row['Tiene_Firma'] || row['tiene_firma']) === 'SÍ' ? 'Disponible en Google Drive' : undefined,
+        photoUrl: (row['TIENE_FOTO'] || row['Tiene_Foto'] || row['tiene_foto']) === 'SÍ' ? 'Disponible en Google Drive' : undefined,
+        reportUrl: row['LINK_INFORME'] || row['Link_Informe'] || row['link_informe'] || '',
         status: 'completed' as const,
-        source: 'sheets', // Marcar que viene de Google Sheets
-        signatureUrl: signatureUrl, // URL directa de Google Drive para firma
-        photoUrlDrive: photoUrl // URL directa de Google Drive para foto
+        source: 'sheets',
+        signatureUrl: row['URL_FIRMA'] || row['Url_Firma'] || row['url_firma'] || '',
+        photoUrlDrive: row['URL_FOTO'] || row['Url_Foto'] || row['url_foto'] || ''
       }
     })
-    
+
     console.log(`✅ ${deliveries.length} entregas procesadas para el admin`)
-    
+
     return NextResponse.json({
       status: 'success',
       deliveries: deliveries, // ✅ Cambiar 'data' por 'deliveries' para consistencia
@@ -184,10 +129,10 @@ export async function GET(request: NextRequest) {
       lastUpdate: new Date().toISOString(),
       source: 'google_sheets'
     })
-    
+
   } catch (error) {
     console.error('❌ Error en API /api/deliveries:', error)
-    
+
     return NextResponse.json({
       status: 'error',
       message: `Error obteniendo entregas: ${error instanceof Error ? error.message : 'Error desconocido'}`,
@@ -200,15 +145,15 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     console.log('📊 API POST: Procesando request con action:', body.action)
-    
+
     // Si es la acción de hacer públicas las imágenes
     if (body.action === 'makeImagesPublic') {
       console.log('🔄 Ejecutando makeImagesPublic...')
-      
+
       const payload = {
         action: 'makeImagesPublic'
       }
-      
+
       const response = await fetch(GOOGLE_SHEETS_CONFIG.APPS_SCRIPT_URL, {
         method: 'POST',
         headers: {
@@ -216,17 +161,17 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify(payload)
       })
-      
+
       if (!response.ok) {
         throw new Error(`Google Apps Script respondió con estado: ${response.status}`)
       }
-      
+
       const result = await response.json()
       console.log('📥 Resultado de makeImagesPublic:', result)
-      
+
       return NextResponse.json(result)
     }
-    
+
     // Si es una entrega normal (acción por defecto)
     const { data: deliveryData, images } = body
 
@@ -244,7 +189,7 @@ export async function POST(request: NextRequest) {
     // Preparar payload para Google Apps Script
     const payload = {
       action: 'addDelivery',
-              data: deliveryData,
+      data: deliveryData,
       images: images || {}
     }
 
@@ -279,7 +224,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(payload)
     })
 
-    console.log('�� Status response de Google Apps Script:', response.status)
+    console.log('📊 Status response de Google Apps Script:', response.status)
 
     if (!response.ok) {
       throw new Error(`Google Apps Script respondió con estado: ${response.status}`)
