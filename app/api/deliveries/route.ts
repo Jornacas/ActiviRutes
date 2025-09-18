@@ -50,9 +50,11 @@ export async function GET(request: NextRequest) {
       const timeStr = row[columns[1]] || '00:00'
       
       console.log('🔍 DEBUG FECHA - dateStr:', dateStr, 'timeStr:', timeStr)
+      console.log('🔍 RAW ROW:', JSON.stringify(row))
+      console.log('🔍 COLUMNS:', columns)
       
       // ✅ SOLUCIÓN DIRECTA: Usar fechas reales de las entregas
-      let timestamp = new Date().toISOString() // Fallback actual por ahora
+      let timestamp = '2025-01-01T00:00:00.000Z' // Fallback FIJO para detectar fallos
       
       try {
         if (dateStr && timeStr) {
