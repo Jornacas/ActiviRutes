@@ -65,27 +65,50 @@ export async function GET(request: NextRequest) {
           // Si la fecha parece válida (contiene números), procesarla
           if (rawDate && rawTime && rawDate.match(/\d/)) {
             // Intentar múltiples formatos
-            const attempts = [
-              // Formato DD/MM/YYYY HH:MM
-              () => {
-                if (rawDate.includes('/')) {
-                  const [d, m, y] = rawDate.split('/')
-                  const time = rawTime.includes(':') ? rawTime : `${rawTime.slice(0,2)}:${rawTime.slice(2)}`
-                  return new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${time}:00`)
-                }
-              },
-              // Formato YYYY-MM-DD HH:MM
-              () => {
-                if (rawDate.includes('-')) {
-                  const time = rawTime.includes(':') ? rawTime : `${rawTime.slice(0,2)}:${rawTime.slice(2)}`
-                  return new Date(`${rawDate}T${time}:00`)
-                }
-              },
-              // Parseado directo combinado
-              () => new Date(`${rawDate} ${rawTime}`),
-              // Solo fecha si hora falla
-              () => new Date(rawDate)
-            ]
+                         const attempts = [
+               // Formato DD/MM/YYYY HH:MM (más común en Google Sheets)
+               () => {
+                 if (rawDate.includes('/')) {
+                   const [d, m, y] = rawDate.split('/')
+                   
+                   // Procesar hora más robustamente
+                   let time = rawTime
+                   if (rawTime.includes(':')) {
+                     // Ya tiene formato HH:MM, añadir segundos si falta
+                     time = rawTime.length === 5 ? `${rawTime}:00` : rawTime
+                   } else if (rawTime.length === 4) {
+                     // Formato HHMM → HH:MM:00
+                     time = `${rawTime.slice(0,2)}:${rawTime.slice(2)}:00`
+                   } else if (rawTime.length === 3) {
+                     // Formato HMM → H:MM:00  
+                     time = `${rawTime.slice(0,1)}:${rawTime.slice(1)}:00`
+                   } else {
+                     // Default si hora es rara
+                     time = '12:00:00'
+                   }
+                   
+                   const isoString = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T${time}`
+                   console.log('🕒 Procesando DD/MM/YYYY:', {rawDate, rawTime, time, isoString})
+                   return new Date(isoString)
+                 }
+               },
+               // Formato YYYY-MM-DD HH:MM
+               () => {
+                 if (rawDate.includes('-')) {
+                   let time = rawTime.includes(':') ? rawTime : `${rawTime.slice(0,2)}:${rawTime.slice(2)}`
+                   time = time.length === 5 ? `${time}:00` : time
+                   const isoString = `${rawDate}T${time}`
+                   console.log('🕒 Procesando YYYY-MM-DD:', {rawDate, rawTime, time, isoString})
+                   return new Date(isoString)
+                 }
+               },
+               // Parseado directo combinado (Google Sheets a veces envía formato especial)
+               () => {
+                 const combined = `${rawDate} ${rawTime}`
+                 console.log('🕒 Parseado directo:', combined)
+                 return new Date(combined)
+               }
+             ]
             
             for (const attempt of attempts) {
               try {
