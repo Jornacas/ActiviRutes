@@ -9,6 +9,16 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { MapPin, Clock, Package, CheckCircle, User, Signature, Truck, RefreshCw, Loader2, ArrowUp, ArrowDown, X, Edit3, Navigation, BarChart3, Map, Camera, Trash2, RotateCcw, Save } from "lucide-react"
 
+// 🐛 CONTROL DE DEBUG - Cambiar a true para activar logs de debug
+const DEBUG_MODE = false
+
+// Helper para logs condicionales
+const debugLog = (message: string, ...args: any[]) => {
+  if (DEBUG_MODE) {
+    console.log(message, ...args)
+  }
+}
+
 // Definición de tipos (debe coincidir con RouteItem del editor)
 interface RouteItem {
   id: string
@@ -402,8 +412,8 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
       {!photo && (
         <div className="space-y-2">
           {/* MÉTODO SIMPLE: Captura directa de cámara */}
-          <Button type="button" onClick={openCameraCapture} variant="outline" className="w-full">
-            Tomar Foto
+          <Button type="button" onClick={openCameraCapture} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+            <Camera className="h-6 w-6" />
           </Button>
           
           <div className="flex gap-2">
@@ -411,9 +421,11 @@ const CameraCapture = ({ onPhotoTaken }: { onPhotoTaken: (photo: string) => void
               <Package className="h-4 w-4 mr-2" />
               Subir desde Galería
             </Button>
-            <Button type="button" onClick={diagnosticCamera} variant="ghost" className="px-3">
-              🔍
-            </Button>
+            {DEBUG_MODE && (
+              <Button type="button" onClick={diagnosticCamera} variant="ghost" className="px-3">
+                🔍
+              </Button>
+            )}
           </div>
           
           <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
@@ -486,14 +498,14 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData, images?: {
     ]
 
     // Intentar envío real usando Google Apps Script Web App (método más simple)
-    console.log("📊 Datos preparados para Google Sheets:", rowData)
-    console.log("📸 Imágenes a enviar:", images ? Object.keys(images) : 'ninguna')
+    debugLog("📊 Datos preparados para Google Sheets:", rowData)
+    debugLog("📸 Imágenes a enviar:", images ? Object.keys(images) : 'ninguna')
     
     try {
       // NUEVO: Usar el endpoint de Next.js que puede verificar respuestas
       const apiUrl = '/api/deliveries'
 
-      console.log("📤 Enviando a API endpoint Next.js:", apiUrl)
+      debugLog("📤 Enviando a API endpoint Next.js:", apiUrl)
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -506,21 +518,21 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData, images?: {
         })
       })
 
-      console.log("📡 Response status:", response.status)
+      debugLog("📡 Response status:", response.status)
 
       if (!response.ok) {
         throw new Error(`API respondió con status: ${response.status}`)
       }
 
       const result = await response.json()
-      console.log("📥 Response data:", result)
+      debugLog("📥 Response data:", result)
 
       if (result.status !== 'success') {
         throw new Error(result.message || 'Error desconocido del API')
       }
 
-      console.log("✅ Datos enviados exitosamente a Google Sheets")
-      console.log("📂 URLs de imágenes recibidas:", {
+      debugLog("✅ Datos enviados exitosamente a Google Sheets")
+      debugLog("📂 URLs de imágenes recibidas:", {
         signature: result.signatureUrl,
         photo: result.photoUrl
       })
@@ -1075,73 +1087,36 @@ export default function TransporterApp() {
   const openCompleteRoute = () => {
     if (routeItems.length === 0) return
     
-    console.log("🗺️ Abriendo Google Maps con ruta completa...")
-    console.log("📍 Elementos de la ruta:", routeItems.length, "paradas")
+    debugLog("🗺️ Abriendo Google Maps con ruta completa...")
+    debugLog("📍 Elementos de la ruta:", routeItems.length, "paradas")
     
-    // Google Maps tiene límite de 25 waypoints. Crear múltiples rutas si es necesario
-    const maxWaypoints = 23 // Reservar 2 para origen y destino
+    // USAR EL MISMO MÉTODO QUE EL EDITOR DE RUTAS (formato /dir/ sin límites)
     const origin = encodeURIComponent("Eixos Creativa, Barcelona")
+    const destination = encodeURIComponent("Eixos Creativa, Barcelona")
     
-    if (routeItems.length <= maxWaypoints) {
-      // Una sola ruta - INCLUIR TODAS LAS PARADAS
-      const destination = encodeURIComponent("Eixos Creativa, Barcelona")
-      
-      // Usar NOMBRES de escuelas + direcciones para mejor identificación
-      const waypoints = routeItems
-        .map((item, index) => {
-          const schoolName = item.name.includes('Escola') ? item.name : `Escola ${item.name}`
-          const waypoint = `${schoolName}, ${item.address}, Barcelona`
-          console.log(`   📍 Waypoint ${index + 1}: ${waypoint}`)
-          return encodeURIComponent(waypoint)
-        })
-        .join('|')
-      
-      console.log(`📊 Total waypoints generados: ${routeItems.length}`)
-      console.log(`📏 Longitud de waypoints string: ${waypoints.length} chars`)
-      
-      let googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`
-      if (waypoints && waypoints.length > 0) {
-        googleMapsUrl += `&waypoints=${waypoints}`
-      }
-      
-      console.log("🗺️ Google Maps URL (ruta única):", googleMapsUrl)
-      console.log(`✅ Incluyendo TODAS las ${routeItems.length} paradas`)
-      window.open(googleMapsUrl, "_blank")
-      
-    } else {
-      // Múltiples rutas para más de 23 paradas
-      const chunks = []
-      for (let i = 0; i < routeItems.length; i += maxWaypoints) {
-        chunks.push(routeItems.slice(i, i + maxWaypoints))
-      }
-      
-      console.log(`🗺️ Creando ${chunks.length} rutas separadas para ${routeItems.length} paradas`)
-      alert(`La ruta tiene ${routeItems.length} paradas. Se abrirán ${chunks.length} pestañas de Google Maps.`)
-      
-      chunks.forEach((chunk, index) => {
-        const chunkOrigin = index === 0 ? origin : encodeURIComponent(`${chunks[index-1][chunks[index-1].length-1].name}, Barcelona`)
-        const chunkDestination = index === chunks.length - 1 ? 
-          encodeURIComponent("Eixos Creativa, Barcelona") : 
-          encodeURIComponent(`${chunk[chunk.length-1].name}, Barcelona`)
-        
-        const waypoints = chunk
-          .map(item => {
-            const schoolName = item.name.includes('Escola') ? item.name : `Escola ${item.name}`
-            return encodeURIComponent(`${schoolName}, ${item.address}, Barcelona`)
-          })
-          .join('|')
-        
-        let googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${chunkOrigin}&destination=${chunkDestination}`
-        if (waypoints) {
-          googleMapsUrl += `&waypoints=${waypoints}`
-        }
-        
-        console.log(`🗺️ Ruta ${index + 1}/${chunks.length} (${chunk.length} paradas):`, googleMapsUrl)
-        setTimeout(() => {
-          window.open(googleMapsUrl, "_blank")
-        }, index * 1500) // Delay entre ventanas
+    // Usar NOMBRES de escuelas + direcciones para mejor identificación
+    const waypoints = routeItems
+      .map((item, index) => {
+        const schoolName = item.name.includes('Escola') ? item.name : `Escola ${item.name}`
+        const waypoint = `${schoolName}, ${item.address}, Barcelona`
+        debugLog(`   📍 Waypoint ${index + 1}: ${waypoint}`)
+        return encodeURIComponent(waypoint)
       })
+      .join('/') // ⭐ CAMBIO CLAVE: usar / en lugar de |
+    
+    debugLog(`📊 Total waypoints generados: ${routeItems.length}`)
+    debugLog(`📏 Longitud de waypoints string: ${waypoints.length} chars`)
+    
+    // USAR FORMATO /dir/ (como en el editor) en lugar de ?waypoints=
+    let googleMapsUrl = `https://www.google.com/maps/dir/${origin}`
+    if (waypoints && waypoints.length > 0) {
+      googleMapsUrl += `/${waypoints}`
     }
+    googleMapsUrl += `/${destination}`
+    
+    debugLog("🗺️ Google Maps URL (formato sin límites):", googleMapsUrl)
+    debugLog(`✅ Incluyendo TODAS las ${routeItems.length} paradas (método del editor)`)
+    window.open(googleMapsUrl, "_blank")
   }
 
   // Calcular progreso
@@ -1212,14 +1187,16 @@ export default function TransporterApp() {
             <Edit3 className="h-4 w-4 mr-2" />
             {isEditing ? "Terminar Edición" : "Editar Ruta"}
           </Button>
-          <Button 
-            variant="outline"
-            onClick={testGoogleSheetsDelivery}
-            className="border-green-300 text-green-700 hover:bg-green-50"
-          >
-            <BarChart3 className="h-4 w-4 mr-2" />
-            Probar Google Sheets
-          </Button>
+          {DEBUG_MODE && (
+            <Button 
+              variant="outline"
+              onClick={testGoogleSheetsDelivery}
+              className="border-green-300 text-green-700 hover:bg-green-50"
+            >
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Probar Google Sheets
+            </Button>
+          )}
         </div>
       </div>
 

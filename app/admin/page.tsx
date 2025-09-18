@@ -271,6 +271,13 @@ export default function AdminPage() {
       filtered = filtered.filter(delivery => delivery.status === statusFilter)
     }
 
+    // Ordenar por fecha más reciente primero
+    filtered = filtered.sort((a, b) => {
+      const dateA = new Date(a.timestamp).getTime()
+      const dateB = new Date(b.timestamp).getTime()
+      return dateB - dateA // Orden descendente (más reciente primero)
+    })
+
     setFilteredDeliveries(filtered)
   }, [deliveries, searchTerm, selectedDate, statusFilter])
 
