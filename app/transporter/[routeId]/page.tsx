@@ -687,6 +687,78 @@ export default function TransporterApp() {
     }
   }, [])
 
+  // Función para sincronizar estado con Google Sheets
+  const syncDeliveryStatus = async (items: RouteItem[]) => {
+    try {
+      debugLog('🔄 Sincronizando estado con Google Sheets...')
+      const response = await fetch('/api/deliveries')
+      
+      if (!response.ok) {
+        debugLog('⚠️ No se pudo consultar entregas existentes')
+        return
+      }
+      
+      const data = await response.json()
+      if (data.status !== 'success') {
+        debugLog('⚠️ Error en respuesta de entregas:', data.message)
+        return
+      }
+      
+      // Filtrar entregas de HOY de esta ruta específica
+      const today = new Date().toDateString()
+      const existingDeliveries = data.deliveries.filter((delivery: any) => {
+        const deliveryDate = new Date(delivery.timestamp).toDateString()
+        return delivery.routeId === routeId && deliveryDate === today
+      })
+      
+      debugLog(`📋 Entregas encontradas hoy para ruta ${routeId}:`, existingDeliveries.length)
+      
+      // Crear nuevo estado basado en entregas existentes
+      const newStatus: {[itemId: string]: DeliveryData} = {}
+      
+      items.forEach(item => {
+        // Buscar entrega existente para esta escuela
+        const existingDelivery = existingDeliveries.find((delivery: any) => 
+          delivery.schoolName.toLowerCase().includes(item.name.toLowerCase()) ||
+          item.name.toLowerCase().includes(delivery.schoolName.toLowerCase())
+        )
+        
+        if (existingDelivery) {
+          // Recrear DeliveryData desde la entrega existente
+          newStatus[item.id] = {
+            deliveryId: existingDelivery.deliveryId,
+            routeId: routeId as string,
+            itemId: item.id,
+            recipientName: existingDelivery.recipientName || existingDelivery.contactPerson || 'Receptor confirmado',
+            signature: existingDelivery.signature || '',
+            photoUrl: existingDelivery.photo || '',
+            timestamp: existingDelivery.timestamp,
+            status: 'delivered',
+            schoolName: item.name,
+            schoolAddress: item.address,
+            activities: item.activities?.join(', ') || '',
+            notes: existingDelivery.notes || ''
+          }
+          debugLog(`✅ ${item.name} ya entregada hoy`)
+        } else {
+          debugLog(`⏳ ${item.name} pendiente`)
+        }
+      })
+      
+      // Actualizar estado local solo con entregas completadas
+      setDeliveryStatus(newStatus)
+      
+      // Guardar estado sincronizado
+      localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(newStatus))
+      
+      debugLog('🎯 Estado sincronizado correctamente')
+      
+    } catch (error) {
+      debugLog('❌ Error sincronizando estado:', error)
+      // No es crítico, continúa con estado local
+    }
+  }
+
   // Simular carga de datos de la ruta (en un caso real, vendría de una DB o API)
   useEffect(() => {
     setLoading(true)
@@ -776,6 +848,13 @@ export default function TransporterApp() {
       setLoading(false)
     }
   }, [routeId])
+
+  // Sincronizar estado con base de datos cuando se cargan los items
+  useEffect(() => {
+    if (routeItems.length > 0) {
+      syncDeliveryStatus(routeItems)
+    }
+  }, [routeItems])
 
   // Función para manejar la entrega de un item
   const handleDeliver = async (itemId: string, recipientName: string, notes: string) => {
@@ -1505,24 +1584,25 @@ export default function TransporterApp() {
       </div>
 
       {/* Panel de Debug - ULTRA RESISTENTE */}
-      <div className="fixed bottom-4 right-4 z-[99999]" style={{position: 'fixed', zIndex: 99999}}>
-        <Button
-          onClick={() => setShowDebugPanel(!showDebugPanel)}
-          variant="outline"
-          size="sm"
-          className={`mb-2 shadow-2xl transition-colors border-2 ${
-            debugLogs.some(log => log.includes('🚨')) 
-              ? 'bg-red-200 border-red-500 text-red-800 animate-pulse' 
-              : debugLogs.some(log => log.includes('❌')) 
-              ? 'bg-red-100 border-red-300 text-red-700' 
-              : 'bg-white border-blue-300'
-          }`}
-          style={{position: 'relative', zIndex: 99999}}
-        >
-          🔧 Debug ({debugLogs.length})
-          {debugLogs.some(log => log.includes('🚨')) && ' 🚨'}
-          {debugLogs.some(log => log.includes('❌')) && ' ⚠️'}
-        </Button>
+      {DEBUG_MODE && (
+        <div className="fixed bottom-4 right-4 z-[99999]" style={{position: 'fixed', zIndex: 99999}}>
+          <Button
+            onClick={() => setShowDebugPanel(!showDebugPanel)}
+            variant="outline"
+            size="sm"
+            className={`mb-2 shadow-2xl transition-colors border-2 ${
+              debugLogs.some(log => log.includes('🚨')) 
+                ? 'bg-red-200 border-red-500 text-red-800 animate-pulse' 
+                : debugLogs.some(log => log.includes('❌')) 
+                ? 'bg-red-100 border-red-300 text-red-700' 
+                : 'bg-white border-blue-300'
+            }`}
+            style={{position: 'relative', zIndex: 99999}}
+          >
+            🔧 Debug ({debugLogs.length})
+            {debugLogs.some(log => log.includes('🚨')) && ' 🚨'}
+            {debugLogs.some(log => log.includes('❌')) && ' ⚠️'}
+          </Button>
         
         {showDebugPanel && (
           <div className="bg-white border rounded-lg shadow-2xl p-4 w-80 max-h-[70vh] overflow-y-auto border-2 border-blue-300">
@@ -1589,7 +1669,8 @@ export default function TransporterApp() {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
