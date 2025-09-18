@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
       
       console.log('🔍 DEBUG FECHA - dateStr:', dateStr, 'timeStr:', timeStr)
       
-      let timestamp = new Date().toISOString() // Fallback
+      let timestamp = '2025-01-01T00:00:00.000Z' // Fallback que NO sea fecha actual
       
       try {
         // Intentar diferentes formatos de fecha de Google Sheets

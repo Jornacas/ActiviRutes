@@ -743,7 +743,7 @@ export default function TransporterApp() {
       
       addDebugInfo(`📊 ${deliveries.length} entregas en BD`)
       
-      // Filtrar entregas de HOY de esta ruta específica
+      // Filtrar entregas de esta ruta específica (TODOS LOS DÍAS, no solo hoy)
       const today = new Date().toDateString()
       debugLog('📅 Fecha de hoy:', today)
       debugLog('📊 Total entregas en base de datos:', deliveries.length)
@@ -756,18 +756,17 @@ export default function TransporterApp() {
         debugLog(`  ${index + 1}. RouteId: ${delivery.routeId}, Fecha: ${deliveryDate}, Escuela: ${delivery.schoolName}`)
       })
       
+      // ✅ CAMBIO: Solo filtrar por routeId, NO por fecha (para mantener estado entre días)
       const existingDeliveries = deliveries.filter((delivery: any) => {
-        const deliveryDate = new Date(delivery.timestamp).toDateString()
         const matchesRoute = delivery.routeId === routeId
-        const matchesDate = deliveryDate === today
         
-        debugLog(`🔍 Filtro - RouteId: ${matchesRoute} (${delivery.routeId} === ${routeId}), Fecha: ${matchesDate} (${deliveryDate} === ${today})`)
+        debugLog(`🔍 Filtro - RouteId: ${matchesRoute} (${delivery.routeId} === ${routeId})`)
         
-        return matchesRoute && matchesDate
+        return matchesRoute // Solo por ruta, no por fecha
       })
       
-      debugLog(`📋 Entregas encontradas hoy para ruta ${routeId}:`, existingDeliveries.length)
-      addDebugInfo(`🎯 Ruta ${routeId}: ${existingDeliveries.length} entregas hoy`)
+      debugLog(`📋 Entregas encontradas para ruta ${routeId}:`, existingDeliveries.length)
+      addDebugInfo(`🎯 Ruta ${routeId}: ${existingDeliveries.length} entregas totales`)
       existingDeliveries.forEach((delivery: any, index: number) => {
         debugLog(`  ✅ ${index + 1}. ${delivery.schoolName} - ${delivery.contactPerson}`)
         addDebugInfo(`✅ ${delivery.schoolName}`)
