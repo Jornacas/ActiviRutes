@@ -742,7 +742,8 @@ export default function TransporterApp() {
           
           // Si es formato compacto, avisar que hay más datos
           if (decodedData.s && decodedData.n > decodedData.s.length) {
-            console.log(`📦 Formato compacto: mostrando ${decodedData.s.length} de ${decodedData.n} escuelas totales`)
+            console.warn(`⚠️ LINK COMPACTO: Solo se muestran ${decodedData.s.length} de ${decodedData.n} escuelas totales`)
+            alert(`⚠️ Link compacto detectado\n\nSolo se muestran ${decodedData.s.length} de ${decodedData.n} paradas.\n\n💡 Solicita el "Link completo" en lugar del QR para ver todas las paradas.`)
           }
           
           setRouteItems(routeItemsFromUrl)

@@ -963,7 +963,6 @@ export default function RouteEditor({
   };
 
   const [transporterLink, setTransporterLink] = useState<string | null>(null);
-  const [transporterQRLink, setTransporterQRLink] = useState<string | null>(null);
   const [showTransporterModal, setShowTransporterModal] = useState(false);
   const [localIP, setLocalIP] = useState<string | null>(null);
 
@@ -1028,18 +1027,6 @@ export default function RouteEditor({
     localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify(routeData));
     console.log('💾 Ruta guardada en localStorage con key:', `savedRoute_${currentRouteId}`)
     
-    // Crear versión ULTRA comprimida para QR (máximo 3 items más importantes)
-    const compactSummary = {
-      i: currentRouteId,
-      t: config.type[0], // d/p
-      n: currentItems.length,
-      s: currentItems.slice(0, 3).map(item => ({
-        i: item.id,
-        n: item.name.split(' ').slice(0, 2).join(' '), // Solo 2 palabras
-        a: [item.activities[0] || 'Material'] // Solo 1 actividad
-      }))
-    };
-    
     // Versión COMPLETA para copiar/compartir
     const fullSummary = {
       id: currentRouteId,
@@ -1055,35 +1042,30 @@ export default function RouteEditor({
       }))
     };
     
-    // Codificar ambas versiones
-    const compactEncoded = btoa(JSON.stringify(compactSummary));
+    // Codificar versión completa
     const fullEncoded = btoa(JSON.stringify(fullSummary));
     
-    // Links base
+    // Link base
     const hostname = window.location.hostname;
     const baseUrl = `${window.location.origin}/transporter/${currentRouteId}`;
-    const compactLink = `${baseUrl}?data=${compactEncoded}`;
     const fullLink = `${baseUrl}?data=${fullEncoded}`;
     
     console.log('🌐 Hostname:', hostname)
     console.log('🔗 Link completo generado:', fullLink)
     console.log('📦 Datos codificados incluidos en URL para compatibilidad móvil')
     
-    // Acortar URLs para hacerlas más manejables
-    let shortCompactLink = compactLink;
+    // Acortar URL para hacerla más manejable
     let shortFullLink = fullLink;
     
     try {
-      console.log('🔗 Acortando URLs...');
-      shortCompactLink = await shortenURL(compactLink);
+      console.log('🔗 Acortando URL...');
       shortFullLink = await shortenURL(fullLink);
     } catch (error) {
-      console.warn('⚠️ No se pudieron acortar las URLs, usando originales');
+      console.warn('⚠️ No se pudo acortar la URL, usando original');
     }
     
-    // Establecer links
-    setTransporterLink(shortFullLink); // Link completo acortado para copiar
-    setTransporterQRLink(shortCompactLink); // Link compacto acortado para QR
+    // Establecer link completo para copiar y compartir
+    setTransporterLink(shortFullLink); // Link completo acortado
     
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       // En desarrollo - necesita túnel público
@@ -1120,22 +1102,7 @@ export default function RouteEditor({
     }
   };
 
-  const generateQRCode = (url: string) => {
-    // Generar QR code usando una API pública con mejor manejo de errores
-    console.log('📱 === GENERANDO QR CODE ===')
-    console.log('🔗 URL para QR:', url)
-    
-    // Validar que la URL no esté vacía
-    if (!url || url.trim() === '') {
-      console.error('❌ URL vacía para QR');
-      return '';
-    }
-    
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
-    console.log('📱 QR API URL:', qrUrl)
-    
-    return qrUrl;
-  };
+
 
   const handleClose = () => {
     if (isDirty) {
@@ -1815,43 +1782,7 @@ export default function RouteEditor({
                 </ul>
               </div>
 
-              {/* QR Code optimizado */}
-              <div className="bg-gray-50 p-3 rounded border text-center">
-                <p className="text-sm text-gray-600 mb-2">📱 Código QR para acceso rápido:</p>
-                {/* Usar versión compacta para QR más pequeño */}
-                <img 
-                  src={transporterQRLink ? generateQRCode(transporterQRLink) : ''} 
-                  alt="QR Code para acceso móvil" 
-                  className="mx-auto border rounded"
-                  onError={(e) => {
-                    console.log('⚠️ QR completo falló, intentando versión compacta...');
-                    // Crear versión ultra compacta como fallback
-                    const compactData = btoa(JSON.stringify({
-                      i: `route-${Date.now()}`,
-                      t: 'd',
-                      n: currentItems.length,
-                      s: currentItems.slice(0, 3).map((item, idx) => ({
-                        i: item.id,
-                        n: item.name.split(' ').slice(0, 2).join(' '),
-                        a: [item.activities[0] || 'Material']
-                      }))
-                    }));
-                    const fallbackLink = `${window.location.origin}/transporter/route-${Date.now()}?data=${compactData}`;
-                    e.currentTarget.src = generateQRCode(fallbackLink);
-                    // Arreglar el error de TypeScript
-                    const nextElement = e.currentTarget.nextElementSibling as HTMLElement;
-                    if (nextElement) {
-                      nextElement.style.display = 'block';
-                    }
-                  }}
-                />
-                <div className="text-xs text-amber-600 mt-2 p-2 bg-amber-50 rounded" style={{display: 'none'}}>
-                  ⚠️ QR básico (sin datos de ruta). Usa "Copiar Link" para datos completos.
-                </div>
-                <p className="text-xs text-blue-600 mt-1">
-                  📦 Versión optimizada - {Math.min(5, currentItems.length)} de {currentItems.length} escuelas
-                </p>
-              </div>
+
 
               <div className="flex gap-2">
                 <Button onClick={copyTransporterLink} className="flex-1">
