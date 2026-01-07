@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -1194,7 +1195,64 @@ function DeliveryModule({
   const [holidays, setHolidays] = useState<Holiday[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [minStudents, setMinStudents] = useState<number>(0)
-  
+
+  // Filtro de actividades - por defecto todas seleccionadas
+  const ALL_ACTIVITIES = ["TC", "CO", "DX", "HC", "JL"] as const
+  const [selectedActivities, setSelectedActivities] = useState<string[]>([...ALL_ACTIVITIES])
+
+  // Centros visitados - persistencia por semana
+  const [visitedCenters, setVisitedCenters] = useState<Set<string>>(new Set())
+  const [hideVisited, setHideVisited] = useState(false)
+
+  // Clave de localStorage basada en la semana
+  const weekKey = useMemo(() => {
+    const weekStart = startOfWeek(selectedWeek, { weekStartsOn: 1 })
+    return `visitedCenters_${format(weekStart, 'yyyy-MM-dd')}`
+  }, [selectedWeek])
+
+  // Cargar centros visitados del localStorage al cambiar de semana
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(weekKey)
+      if (saved) {
+        setVisitedCenters(new Set(JSON.parse(saved)))
+      } else {
+        setVisitedCenters(new Set())
+      }
+    } catch {
+      setVisitedCenters(new Set())
+    }
+  }, [weekKey])
+
+  // Guardar centros visitados en localStorage
+  const toggleVisited = useCallback((schoolName: string) => {
+    setVisitedCenters(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(schoolName)) {
+        newSet.delete(schoolName)
+      } else {
+        newSet.add(schoolName)
+      }
+      // Guardar en localStorage
+      try {
+        localStorage.setItem(weekKey, JSON.stringify([...newSet]))
+      } catch {
+        // Ignorar errores de localStorage
+      }
+      return newSet
+    })
+  }, [weekKey])
+
+  // Reiniciar semana
+  const resetVisited = useCallback(() => {
+    setVisitedCenters(new Set())
+    try {
+      localStorage.removeItem(weekKey)
+    } catch {
+      // Ignorar errores
+    }
+  }, [weekKey])
+
   // Debounced search term para optimizar rendimiento
   const debouncedSearchTerm = useDebounced(searchTerm, 300)
 
@@ -1205,35 +1263,61 @@ function DeliveryModule({
   }, [deliverySchools, selectedWeek, deliveryType, holidays])
 
   // Optimized filteredPlans con debounced search y memoización mejorada
+  // Este filtro NO incluye el filtro de visitados para poder contar correctamente
   const filteredPlans = useMemo(() => {
     if (!deliveryPlans.length) return []
-    
+
     const lowerSearchTerm = debouncedSearchTerm.toLowerCase()
-    
+    const allActivitiesSelected = selectedActivities.length === ALL_ACTIVITIES.length
+
     return deliveryPlans.filter((plan) => {
       // Early return si no hay criterios de filtro
-      if (!lowerSearchTerm && minStudents === 0) return true
-      
+      if (!lowerSearchTerm && minStudents === 0 && allActivitiesSelected) return true
+
       // Filtro por búsqueda de texto (optimizado)
-      const matchesSearch = !lowerSearchTerm || 
+      const matchesSearch = !lowerSearchTerm ||
         plan.school.name.toLowerCase().includes(lowerSearchTerm) ||
         plan.activities.some((activity) => activity.activity.toLowerCase().includes(lowerSearchTerm))
-      
+
       // Filtro por número mínimo de alumnos (optimizado)
-      const hasMinStudents = minStudents === 0 || 
+      const hasMinStudents = minStudents === 0 ||
         plan.activities.some((activity) => (activity.totalStudents || 0) >= minStudents)
-      
-      return matchesSearch && hasMinStudents
+
+      // Filtro por actividades seleccionadas
+      // El centro se muestra si tiene AL MENOS UNA actividad de las seleccionadas
+      const hasSelectedActivity = allActivitiesSelected ||
+        plan.activities.some((activity) => {
+          // Extraer el código de actividad (TC, CO, JC, DX) del nombre (ej: "TC1", "CO2A")
+          const activityCode = activity.activity.replace(/\d+[A-Z]?$/, "")
+          return selectedActivities.includes(activityCode)
+        })
+
+      return matchesSearch && hasMinStudents && hasSelectedActivity
     })
-  }, [deliveryPlans, debouncedSearchTerm, minStudents])
+  }, [deliveryPlans, debouncedSearchTerm, minStudents, selectedActivities, ALL_ACTIVITIES.length])
+
+  // Planes a mostrar (con filtro de visitados si está activo)
+  const displayPlans = useMemo(() => {
+    if (!hideVisited) return filteredPlans
+    return filteredPlans.filter(plan => !visitedCenters.has(plan.school.name))
+  }, [filteredPlans, hideVisited, visitedCenters])
+
+  // Estadísticas de progreso
+  const visitedStats = useMemo(() => {
+    const totalCenters = filteredPlans.length
+    const visitedCount = filteredPlans.filter(plan => visitedCenters.has(plan.school.name)).length
+    const pendingCount = totalCenters - visitedCount
+    const percentage = totalCenters > 0 ? Math.round((visitedCount / totalCenters) * 100) : 0
+    return { totalCenters, visitedCount, pendingCount, percentage }
+  }, [filteredPlans, visitedCenters])
 
   // Cache para días formateados
   const dayFormatCache = useMemo(() => new Map<string, string>(), [])
 
   const plansByDay = useMemo(() => {
     const grouped: { [key: string]: DeliveryPlan[] } = {}
-    
-    filteredPlans.forEach((plan) => {
+
+    displayPlans.forEach((plan) => {
       const dateKey = plan.deliveryDate.toDateString()
       
       // Usar cache para evitar format() repetidos
@@ -1249,7 +1333,7 @@ function DeliveryModule({
       grouped[dayKey].push(plan)
     })
     return grouped
-  }, [filteredPlans, dayFormatCache])
+  }, [displayPlans, dayFormatCache])
 
   const generateRouteForDay = (plans: DeliveryPlan[]) => {
     const addresses = plans
@@ -1351,6 +1435,51 @@ function DeliveryModule({
         </div>
       </div>
 
+      {/* Filtro de actividades */}
+      <div className="flex flex-wrap items-center gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <span className="text-sm font-medium">Filtrar actividades:</span>
+        <div className="flex flex-wrap gap-4">
+          {ALL_ACTIVITIES.map((activity) => (
+            <label key={activity} className="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={selectedActivities.includes(activity)}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    setSelectedActivities([...selectedActivities, activity])
+                  } else {
+                    setSelectedActivities(selectedActivities.filter((a) => a !== activity))
+                  }
+                }}
+              />
+              <span className="text-sm font-medium">{activity}</span>
+            </label>
+          ))}
+        </div>
+        <div className="flex gap-2 ml-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedActivities([...ALL_ACTIVITIES])}
+            disabled={selectedActivities.length === ALL_ACTIVITIES.length}
+          >
+            Todas
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedActivities([])}
+            disabled={selectedActivities.length === 0}
+          >
+            Ninguna
+          </Button>
+        </div>
+        {selectedActivities.length < ALL_ACTIVITIES.length && selectedActivities.length > 0 && (
+          <Badge variant="secondary" className="ml-2">
+            {selectedActivities.length} de {ALL_ACTIVITIES.length} seleccionadas
+          </Badge>
+        )}
+      </div>
+
       {/* Gestión de festivos */}
       <HolidayManager holidays={holidays} onHolidaysChange={setHolidays} />
 
@@ -1384,6 +1513,58 @@ function DeliveryModule({
                 {filteredPlans.reduce((sum, plan) => sum + plan.activities.length, 0)}
               </div>
               <div className="text-sm text-gray-500">Actividades Total</div>
+            </div>
+          </div>
+
+          {/* Progreso de visitas */}
+          <div className="border-t pt-4 mt-4">
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium">Progreso:</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-48 h-3 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 transition-all duration-300"
+                      style={{ width: `${visitedStats.percentage}%` }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium">
+                    {visitedStats.visitedCount}/{visitedStats.totalCenters}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge variant={visitedStats.pendingCount > 0 ? "destructive" : "default"} className="text-sm">
+                  {visitedStats.pendingCount} pendientes
+                </Badge>
+                <Badge variant="secondary" className="text-sm bg-green-100 text-green-800">
+                  {visitedStats.visitedCount} visitados
+                </Badge>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={hideVisited}
+                  onCheckedChange={(checked) => setHideVisited(!!checked)}
+                />
+                <span className="text-sm">Ocultar visitados</span>
+              </label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetVisited}
+                disabled={visitedStats.visitedCount === 0}
+                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Reiniciar semana
+              </Button>
+              {hideVisited && visitedStats.visitedCount > 0 && (
+                <span className="text-sm text-gray-500">
+                  Mostrando {displayPlans.length} de {filteredPlans.length} centros
+                </span>
+              )}
             </div>
           </div>
         </CardContent>
@@ -1449,30 +1630,55 @@ function DeliveryModule({
                     {} as Record<string, typeof sortedActivities>,
                   )
 
+                  const isVisited = visitedCenters.has(plan.school.name)
+
                   return (
                     <div
                       key={`${plan.school.name}-${index}`}
-                      className="border rounded-xl p-6 bg-gradient-to-r from-white to-gray-50 shadow-sm hover:shadow-md transition-shadow"
+                      className={cn(
+                        "border rounded-xl p-6 shadow-sm hover:shadow-md transition-all",
+                        isVisited
+                          ? "bg-gradient-to-r from-green-50 to-green-100 border-green-200"
+                          : "bg-gradient-to-r from-white to-gray-50"
+                      )}
                     >
                       <div className="flex justify-between items-start mb-4">
-                        <div className="flex-1">
-                          <h4 className="text-xl font-bold text-gray-900 mb-2">{schoolDisplayName}</h4>
-                          <div className="flex items-center text-sm text-gray-600 mb-3">
-                            <MapPin className="h-4 w-4 mr-2 text-blue-500" />
-                            <a
-                              href={
-                                "https://www.google.com/maps/search/?api=1&query=" +
-                                encodeURIComponent(schoolDisplayName + ", " + plan.school.address + ", Barcelona")
-                              }
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
-                            >
-                              {plan.school.address}, Barcelona
-                            </a>
+                        <div className="flex items-start gap-3 flex-1">
+                          <Checkbox
+                            checked={isVisited}
+                            onCheckedChange={() => toggleVisited(plan.school.name)}
+                            className="mt-1 h-5 w-5"
+                          />
+                          <div className="flex-1">
+                            <h4 className={cn(
+                              "text-xl font-bold mb-2",
+                              isVisited ? "text-green-800 line-through opacity-70" : "text-gray-900"
+                            )}>
+                              {schoolDisplayName}
+                            </h4>
+                            <div className="flex items-center text-sm text-gray-600 mb-3">
+                              <MapPin className="h-4 w-4 mr-2 text-blue-500" />
+                              <a
+                                href={
+                                  "https://www.google.com/maps/search/?api=1&query=" +
+                                  encodeURIComponent(schoolDisplayName + ", " + plan.school.address + ", Barcelona")
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                              >
+                                {plan.school.address}, Barcelona
+                              </a>
+                            </div>
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="flex flex-col gap-1 items-end">
+                          {isVisited && (
+                            <Badge className="bg-green-600 text-white">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Visitado
+                            </Badge>
+                          )}
                           <Badge
                             variant={plan.consolidated ? "default" : "secondary"}
                             className={plan.consolidated ? "bg-green-100 text-green-800 border-green-200" : ""}
