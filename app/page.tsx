@@ -1182,6 +1182,17 @@ function HolidayManager({
   )
 }
 
+// Constantes para DeliveryModule (fuera del componente para evitar re-renders)
+const ALL_ACTIVITIES = ["TC", "CO", "DX", "HC", "JL"] as const
+const WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes"] as const
+const dayNameMapping: { [key: string]: string } = {
+  "lunes": "Dilluns",
+  "martes": "Dimarts",
+  "miércoles": "Dimecres",
+  "jueves": "Dijous",
+  "viernes": "Divendres"
+}
+
 // Componente principal de entregas - MODIFICADO para pasar deliveryPlans
 function DeliveryModule({
   deliverySchools,
@@ -1197,7 +1208,6 @@ function DeliveryModule({
   const [minStudents, setMinStudents] = useState<number>(0)
 
   // Filtro de actividades - por defecto todas seleccionadas
-  const ALL_ACTIVITIES = ["TC", "CO", "DX", "HC", "JL"] as const
   const [selectedActivities, setSelectedActivities] = useState<string[]>([...ALL_ACTIVITIES])
 
   // Centros visitados - persistencia por semana
@@ -1205,7 +1215,6 @@ function DeliveryModule({
   const [hideVisited, setHideVisited] = useState(false)
 
   // Día seleccionado para planificar (tabs)
-  const WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes"] as const
   const [selectedPlanningDay, setSelectedPlanningDay] = useState<string>("jueves")
 
   // Clave de localStorage basada en la semana
@@ -1374,15 +1383,6 @@ function DeliveryModule({
     return grouped
   }, [displayPlans, dayFormatCache])
 
-  // Mapeo de días en español a catalán para buscar actividades
-  const dayNameMapping: { [key: string]: string } = {
-    "lunes": "Dilluns",
-    "martes": "Dimarts",
-    "miércoles": "Dimecres",
-    "jueves": "Dijous",
-    "viernes": "Divendres"
-  }
-
   // Centros que tienen actividad en el día seleccionado (para poder añadirlos)
   // Esto incluye centros de CUALQUIER día que tengan actividad el día seleccionado
   const centersWithActivityOnDay = useMemo(() => {
@@ -1396,7 +1396,7 @@ function DeliveryModule({
     })
 
     return result
-  }, [filteredPlans, WEEKDAYS])
+  }, [filteredPlans])
 
   // Centros asignados al día seleccionado según lógica actual
   const assignedToSelectedDay = useMemo(() => {
@@ -1424,17 +1424,20 @@ function DeliveryModule({
   }, [filteredPlans, selectedPlanningDay, visitedCenters])
 
   // Estado para centros adicionales seleccionados (de otros días de la misma semana)
-  const [selectedOtherDayCenters, setSelectedOtherDayCenters] = useState<Set<string>>(new Set())
+  // Map: schoolName -> día para el que se seleccionó (ej: "Brusi" -> "jueves")
+  const [selectedOtherDayCenters, setSelectedOtherDayCenters] = useState<Map<string, string>>(new Map())
 
-  const toggleOtherDayCenter = useCallback((schoolName: string) => {
+  const toggleOtherDayCenter = useCallback((schoolName: string, forDay: string) => {
     setSelectedOtherDayCenters(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(schoolName)) {
-        newSet.delete(schoolName)
+      const newMap = new Map(prev)
+      if (newMap.get(schoolName) === forDay) {
+        // Si ya está seleccionado para este día, lo quitamos
+        newMap.delete(schoolName)
       } else {
-        newSet.add(schoolName)
+        // Lo seleccionamos para este día
+        newMap.set(schoolName, forDay)
       }
-      return newSet
+      return newMap
     })
   }, [])
 
@@ -1709,14 +1712,20 @@ function DeliveryModule({
               const catalanDay = dayNameMapping[day]
               const formattedDay = catalanDay.charAt(0).toUpperCase() + catalanDay.slice(1).toLowerCase()
               const assignedPlans = plansByDay[formattedDay] || []
+
+              // Filtrar centros disponibles: tienen actividad este día, NO están visitados,
+              // y NO están ya seleccionados para OTRO día
               const availableOtherDays = filteredPlans.filter(plan => {
                 const hasActivityOnDay = plan.activities.some(a => a.day === catalanDay)
                 const assignedDay = format(plan.deliveryDate, "EEEE", { locale: es })
-                return hasActivityOnDay && assignedDay !== formattedDay && !visitedCenters.has(plan.school.name)
+                const isVisited = visitedCenters.has(plan.school.name)
+                const selectedForOtherDay = selectedOtherDayCenters.has(plan.school.name) &&
+                                            selectedOtherDayCenters.get(plan.school.name) !== day
+                return hasActivityOnDay && assignedDay !== formattedDay && !isVisited && !selectedForOtherDay
               })
 
-              // Calcular totales para el botón
-              const selectedOtherCount = availableOtherDays.filter(p => selectedOtherDayCenters.has(p.school.name)).length
+              // Calcular totales para el botón (solo los seleccionados PARA ESTE DÍA)
+              const selectedOtherCount = availableOtherDays.filter(p => selectedOtherDayCenters.get(p.school.name) === day).length
               const selectedNextWeekCount = selectedNextWeekCenters.size
 
               return (
@@ -1732,8 +1741,8 @@ function DeliveryModule({
                     </div>
                     <Button
                       onClick={() => {
-                        // Combinar planes asignados + seleccionados de otros días + semana siguiente
-                        const otherDayPlans = availableOtherDays.filter(p => selectedOtherDayCenters.has(p.school.name))
+                        // Combinar planes asignados + seleccionados de otros días (para este día) + semana siguiente
+                        const otherDayPlans = availableOtherDays.filter(p => selectedOtherDayCenters.get(p.school.name) === day)
                         const nextWeekSelectedPlans = nextWeekPlans.filter(p => selectedNextWeekCenters.has(p.school.name))
                         const allPlans = [...assignedPlans, ...otherDayPlans, ...nextWeekSelectedPlans]
 
@@ -1817,7 +1826,7 @@ function DeliveryModule({
                             variant="outline"
                             size="sm"
                             onClick={() => availableOtherDays.forEach(p => {
-                              if (!selectedOtherDayCenters.has(p.school.name)) toggleOtherDayCenter(p.school.name)
+                              if (selectedOtherDayCenters.get(p.school.name) !== day) toggleOtherDayCenter(p.school.name, day)
                             })}
                           >
                             Todos
@@ -1826,7 +1835,7 @@ function DeliveryModule({
                             variant="outline"
                             size="sm"
                             onClick={() => availableOtherDays.forEach(p => {
-                              if (selectedOtherDayCenters.has(p.school.name)) toggleOtherDayCenter(p.school.name)
+                              if (selectedOtherDayCenters.get(p.school.name) === day) toggleOtherDayCenter(p.school.name, day)
                             })}
                           >
                             Ninguno
@@ -1835,7 +1844,7 @@ function DeliveryModule({
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {availableOtherDays.map((plan) => {
-                          const isSelected = selectedOtherDayCenters.has(plan.school.name)
+                          const isSelected = selectedOtherDayCenters.get(plan.school.name) === day
                           const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
                           const assignedDay = format(plan.deliveryDate, "EEEE", { locale: es })
                           return (
@@ -1848,7 +1857,7 @@ function DeliveryModule({
                             >
                               <Checkbox
                                 checked={isSelected}
-                                onCheckedChange={() => toggleOtherDayCenter(plan.school.name)}
+                                onCheckedChange={() => toggleOtherDayCenter(plan.school.name, day)}
                               />
                               <div className="flex-1 min-w-0">
                                 <span className="text-sm font-medium truncate block">{schoolDisplayName}</span>
@@ -1861,51 +1870,65 @@ function DeliveryModule({
                     </div>
                   )}
 
-                  {/* Centros de semana siguiente */}
-                  {nextWeekPlans.length > 0 && (
-                    <div className="space-y-3 border-t pt-4">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium text-gray-700 flex items-center">
-                          <CalendarIcon className="h-4 w-4 mr-2 text-blue-600" />
-                          Adelantar de semana siguiente ({nextWeekPlans.length})
-                        </h4>
-                        {selectedNextWeekCenters.size > 0 && (
-                          <Badge className="bg-blue-600">{selectedNextWeekCenters.size} seleccionados</Badge>
+                  {/* Centros de semana siguiente - filtrados para excluir los que ya están en ruta hoy */}
+                  {(() => {
+                    // Filtrar centros de semana siguiente que NO están ya en la ruta de hoy
+                    const centersInTodayRoute = new Set([
+                      ...assignedPlans.map(p => p.school.name),
+                      ...Array.from(selectedOtherDayCenters.keys()),
+                      ...Array.from(visitedCenters)
+                    ])
+                    const availableNextWeek = nextWeekPlans.filter(
+                      plan => !centersInTodayRoute.has(plan.school.name)
+                    )
+
+                    if (availableNextWeek.length === 0) return null
+
+                    return (
+                      <div className="space-y-3 border-t pt-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium text-gray-700 flex items-center">
+                            <CalendarIcon className="h-4 w-4 mr-2 text-blue-600" />
+                            Adelantar de semana siguiente ({availableNextWeek.length})
+                          </h4>
+                          {selectedNextWeekCenters.size > 0 && (
+                            <Badge className="bg-blue-600">{selectedNextWeekCenters.size} seleccionados</Badge>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {availableNextWeek.slice(0, 12).map((plan) => {
+                            const isSelected = selectedNextWeekCenters.has(plan.school.name)
+                            const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
+                            return (
+                              <label
+                                key={plan.school.name}
+                                className={cn(
+                                  "flex items-center gap-2 p-2 rounded-lg cursor-pointer border",
+                                  isSelected ? "bg-blue-50 border-blue-300" : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                                )}
+                              >
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => toggleNextWeekCenter(plan.school.name)}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-sm font-medium truncate block">{schoolDisplayName}</span>
+                                  <span className="text-xs text-gray-500">
+                                    {plan.activities.map(a => a.activity).join(", ")}
+                                  </span>
+                                </div>
+                              </label>
+                            )
+                          })}
+                        </div>
+                        {availableNextWeek.length > 12 && (
+                          <p className="text-sm text-gray-500 text-center">
+                            Y {availableNextWeek.length - 12} centros más...
+                          </p>
                         )}
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {nextWeekPlans.slice(0, 12).map((plan) => {
-                          const isSelected = selectedNextWeekCenters.has(plan.school.name)
-                          const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
-                          return (
-                            <label
-                              key={plan.school.name}
-                              className={cn(
-                                "flex items-center gap-2 p-2 rounded-lg cursor-pointer border",
-                                isSelected ? "bg-blue-50 border-blue-300" : "bg-gray-50 border-gray-200 hover:bg-gray-100"
-                              )}
-                            >
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() => toggleNextWeekCenter(plan.school.name)}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm font-medium truncate block">{schoolDisplayName}</span>
-                                <span className="text-xs text-gray-500">
-                                  {plan.activities.map(a => a.activity).join(", ")}
-                                </span>
-                              </div>
-                            </label>
-                          )
-                        })}
-                      </div>
-                      {nextWeekPlans.length > 12 && (
-                        <p className="text-sm text-gray-500 text-center">
-                          Y {nextWeekPlans.length - 12} centros más...
-                        </p>
-                      )}
-                    </div>
-                  )}
+                    )
+                  })()}
 
                   {/* Mensaje si no hay centros */}
                   {assignedPlans.length === 0 && availableOtherDays.length === 0 && (
