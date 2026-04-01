@@ -22,6 +22,8 @@ import {
   RefreshCw,
   Map,
   List,
+  ExternalLink,
+  Printer,
 } from "lucide-react"
 
 // Tipos para el editor de rutas
@@ -1532,6 +1534,93 @@ export default function RouteEditor({
                     >
                       <FolderOpen className="h-4 w-4 mr-2" />
                       Recuperar
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        const catalanDays = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"]
+                        const dayLabels: {[k:string]:string} = { "Dilluns": "Lunes", "Dimarts": "Martes", "Dimecres": "Miércoles", "Dijous": "Jueves", "Divendres": "Viernes" }
+                        const bom = "\uFEFF"
+                        const rows = ["Día;Orden;Centro;Dirección;Actividades"]
+
+                        catalanDays.forEach(day => {
+                          const items = weeklyPlansByDay[day] || []
+                          if (items.length === 0) return
+                          items.forEach((item, i) => {
+                            const name = item.name?.startsWith("Escola") ? item.name : `Escola ${item.name}`
+                            const activities = (item.activities || []).join(", ")
+                            rows.push(`${dayLabels[day] || day};${i + 1};${name};${item.address || ""};${activities}`)
+                          })
+                        })
+
+                        const blob = new Blob([bom + rows.join("\n")], { type: "text/csv;charset=utf-8" })
+                        const url = window.URL.createObjectURL(blob)
+                        const a = document.createElement("a")
+                        a.href = url
+                        a.download = `rutas_semana_${config.weekStart || "actual"}.csv`
+                        a.click()
+                        window.URL.revokeObjectURL(url)
+                      }}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Exportar
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        const catalanDays = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"]
+                        const dayLabels: {[k:string]:string} = { "Dilluns": "Lunes", "Dimarts": "Martes", "Dimecres": "Miércoles", "Dijous": "Jueves", "Divendres": "Viernes" }
+                        const totalItems = Object.values(weeklyPlansByDay).flat().length
+
+                        let html = `
+                          <html><head><title>Rutas - ${config.title || "Semana"}</title>
+                          <style>
+                            body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
+                            h1 { font-size: 18px; margin-bottom: 4px; }
+                            h2 { font-size: 15px; color: #2563eb; margin-top: 24px; margin-bottom: 8px; border-bottom: 2px solid #2563eb; padding-bottom: 4px; }
+                            .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+                            table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+                            th { background: #f0f4ff; text-align: left; padding: 6px 10px; border: 1px solid #ddd; font-weight: 600; }
+                            td { padding: 6px 10px; border: 1px solid #ddd; }
+                            tr:nth-child(even) { background: #f9fafb; }
+                            .activities { color: #555; font-size: 12px; }
+                            @media print { body { padding: 0; } }
+                          </style></head><body>
+                          <h1>${config.title || "Plan de Rutas"}</h1>
+                          <div class="subtitle">${totalItems} centros</div>
+                        `
+
+                        catalanDays.forEach(day => {
+                          const items = weeklyPlansByDay[day] || []
+                          if (items.length === 0) return
+
+                          html += `<h2>${dayLabels[day] || day} (${items.length} centros)</h2>`
+                          html += `<table><tr><th>#</th><th>Centro</th><th>Dirección</th><th>Actividades</th></tr>`
+
+                          items.forEach((item, i) => {
+                            const name = item.name?.startsWith("Escola") ? item.name : `Escola ${item.name}`
+                            const activities = (item.activities || []).join(", ")
+                            html += `<tr><td>${i + 1}</td><td><strong>${name}</strong></td><td>${item.address || ""}</td><td class="activities">${activities}</td></tr>`
+                          })
+
+                          html += `</table>`
+                        })
+
+                        html += `</body></html>`
+
+                        const printWindow = window.open("", "_blank")
+                        if (printWindow) {
+                          printWindow.document.write(html)
+                          printWindow.document.close()
+                          printWindow.focus()
+                          setTimeout(() => printWindow.print(), 500)
+                        }
+                      }}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <Printer className="h-4 w-4 mr-2" />
+                      Imprimir
                     </Button>
                   </div>
                 </CardTitle>

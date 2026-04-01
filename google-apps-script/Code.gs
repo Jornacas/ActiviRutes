@@ -178,6 +178,7 @@ function doPost(e) {
     const data = JSON.parse(e.postData.contents);
     logToSheet('🚨 Datos parseados', data);
 
+    // === ACCIONES LEGACY ===
     if (data.action === 'addDelivery') {
       return addDeliveryToSheet(data.data, data.images);
     }
@@ -188,6 +189,50 @@ function doPost(e) {
 
     if (data.action === 'makeImagesPublic') {
       return createJSONResponse(makeExistingImagesPublic());
+    }
+
+    // === ACCIONES DE PROYECTOS ===
+    if (data.action === 'createProject') {
+      return createProject(data.projectData);
+    }
+
+    if (data.action === 'getProjects') {
+      return getProjects(data.tipo);
+    }
+
+    if (data.action === 'getProject') {
+      return getProject(data.projectId);
+    }
+
+    if (data.action === 'deleteProject') {
+      return deleteProject(data.projectId);
+    }
+
+    if (data.action === 'saveProjectDeliveries') {
+      return saveProjectDeliveries(data.projectId, data.deliveries);
+    }
+
+    if (data.action === 'getProjectDeliveries') {
+      return getProjectDeliveries(data.projectId);
+    }
+
+    if (data.action === 'updateDeliveryStatus') {
+      return updateDeliveryStatus(
+        data.projectId,
+        data.centro,
+        data.status,
+        data.fechaEntrega,
+        data.notas
+      );
+    }
+
+    if (data.action === 'updateMultipleDeliveries') {
+      return updateMultipleDeliveries(
+        data.projectId,
+        data.centros,
+        data.status,
+        data.fechaEntrega
+      );
     }
 
     logToSheet('❌ Acción no válida', data.action);
@@ -383,6 +428,441 @@ function makeExistingImagesPublic() {
       status: 'error',
       message: error.toString()
     };
+  }
+}
+
+// ============================================
+// SISTEMA DE PROYECTOS - ENTREGAS Y RECOGIDAS
+// ============================================
+
+const SHEET_ID = '1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I';
+
+// Crear hojas de proyectos si no existen
+function initProjectSheets() {
+  const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+
+  // Hoja de Proyectos
+  let projectsSheet = spreadsheet.getSheetByName('Proyectos');
+  if (!projectsSheet) {
+    projectsSheet = spreadsheet.insertSheet('Proyectos');
+    projectsSheet.getRange(1, 1, 1, 8).setValues([[
+      'ID', 'Tipo', 'Modo', 'FechaInicio', 'FechaFin', 'Actividades', 'Estado', 'FechaCreacion'
+    ]]);
+    logToSheet('✅ Hoja Proyectos creada');
+  }
+
+  // Hoja de Entregas del Proyecto
+  let deliveriesSheet = spreadsheet.getSheetByName('ProyectoEntregas');
+  if (!deliveriesSheet) {
+    deliveriesSheet = spreadsheet.insertSheet('ProyectoEntregas');
+    deliveriesSheet.getRange(1, 1, 1, 9).setValues([[
+      'ProyectoID', 'Centro', 'Direccion', 'FechaPlanificada', 'DiaPlanificado',
+      'FechaEntrega', 'Estado', 'Actividades', 'Notas'
+    ]]);
+    logToSheet('✅ Hoja ProyectoEntregas creada');
+  }
+
+  return { projectsSheet, deliveriesSheet };
+}
+
+// Crear un nuevo proyecto
+function createProject(projectData) {
+  try {
+    logToSheet('🚀 Creando proyecto', projectData);
+
+    const { projectsSheet } = initProjectSheets();
+
+    // Generar ID único
+    const projectId = 'P' + Date.now();
+
+    const row = [
+      projectId,
+      projectData.tipo,           // 'entrega' o 'recogida'
+      projectData.modo,           // 'trimestral' o 'inicio-curso'
+      projectData.fechaInicio,    // YYYY-MM-DD
+      projectData.fechaFin,       // YYYY-MM-DD
+      projectData.actividades.join(','),  // 'TC,CO,DX,JC'
+      'activo',
+      new Date().toISOString()
+    ];
+
+    projectsSheet.appendRow(row);
+
+    logToSheet('✅ Proyecto creado', { projectId });
+
+    return createJSONResponse({
+      status: 'success',
+      projectId: projectId,
+      message: 'Proyecto creado correctamente'
+    });
+
+  } catch (error) {
+    logToSheet('❌ Error creando proyecto', error.toString());
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error creando proyecto: ' + error.toString()
+    });
+  }
+}
+
+// Obtener todos los proyectos (o filtrar por tipo)
+function getProjects(tipo = null) {
+  try {
+    logToSheet('📋 Obteniendo proyectos', { tipo });
+
+    const { projectsSheet } = initProjectSheets();
+
+    const lastRow = projectsSheet.getLastRow();
+    if (lastRow <= 1) {
+      return createJSONResponse({
+        status: 'success',
+        data: [],
+        message: 'No hay proyectos'
+      });
+    }
+
+    const data = projectsSheet.getRange(2, 1, lastRow - 1, 8).getValues();
+
+    let projects = data.map(row => ({
+      id: row[0],
+      tipo: row[1],
+      modo: row[2],
+      fechaInicio: row[3],
+      fechaFin: row[4],
+      actividades: row[5] ? row[5].split(',') : [],
+      estado: row[6],
+      fechaCreacion: row[7]
+    }));
+
+    // Filtrar por tipo si se especifica
+    if (tipo) {
+      projects = projects.filter(p => p.tipo === tipo);
+    }
+
+    // Filtrar solo activos por defecto
+    projects = projects.filter(p => p.estado === 'activo');
+
+    logToSheet('✅ Proyectos obtenidos', { count: projects.length });
+
+    return createJSONResponse({
+      status: 'success',
+      data: projects,
+      message: `${projects.length} proyectos obtenidos`
+    });
+
+  } catch (error) {
+    logToSheet('❌ Error obteniendo proyectos', error.toString());
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error obteniendo proyectos: ' + error.toString()
+    });
+  }
+}
+
+// Obtener un proyecto específico
+function getProject(projectId) {
+  try {
+    const { projectsSheet } = initProjectSheets();
+
+    const lastRow = projectsSheet.getLastRow();
+    if (lastRow <= 1) {
+      return createJSONResponse({
+        status: 'error',
+        message: 'Proyecto no encontrado'
+      });
+    }
+
+    const data = projectsSheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    const row = data.find(r => r[0] === projectId);
+
+    if (!row) {
+      return createJSONResponse({
+        status: 'error',
+        message: 'Proyecto no encontrado'
+      });
+    }
+
+    return createJSONResponse({
+      status: 'success',
+      data: {
+        id: row[0],
+        tipo: row[1],
+        modo: row[2],
+        fechaInicio: row[3],
+        fechaFin: row[4],
+        actividades: row[5] ? row[5].split(',') : [],
+        estado: row[6],
+        fechaCreacion: row[7]
+      }
+    });
+
+  } catch (error) {
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error: ' + error.toString()
+    });
+  }
+}
+
+// Guardar entregas de un proyecto (batch)
+function saveProjectDeliveries(projectId, deliveries) {
+  try {
+    logToSheet('💾 Guardando entregas del proyecto', { projectId, count: deliveries.length });
+
+    const { deliveriesSheet } = initProjectSheets();
+
+    // Preparar filas para insertar
+    const rows = deliveries.map(d => [
+      projectId,
+      d.centro,
+      d.direccion || '',
+      d.fechaPlanificada,      // YYYY-MM-DD
+      d.diaPlanificado,        // 'lunes', 'martes', etc.
+      d.fechaEntrega || '',    // vacío si pendiente
+      d.estado || 'pendiente', // 'pendiente', 'entregado', 'adelantado'
+      Array.isArray(d.actividades) ? d.actividades.join(',') : d.actividades,
+      d.notas || ''
+    ]);
+
+    // Insertar todas las filas
+    if (rows.length > 0) {
+      deliveriesSheet.getRange(
+        deliveriesSheet.getLastRow() + 1,
+        1,
+        rows.length,
+        9
+      ).setValues(rows);
+    }
+
+    logToSheet('✅ Entregas guardadas', { count: rows.length });
+
+    return createJSONResponse({
+      status: 'success',
+      message: `${rows.length} entregas guardadas`,
+      count: rows.length
+    });
+
+  } catch (error) {
+    logToSheet('❌ Error guardando entregas', error.toString());
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error: ' + error.toString()
+    });
+  }
+}
+
+// Obtener entregas de un proyecto
+function getProjectDeliveries(projectId) {
+  try {
+    logToSheet('📋 Obteniendo entregas del proyecto', projectId);
+
+    const { deliveriesSheet } = initProjectSheets();
+
+    const lastRow = deliveriesSheet.getLastRow();
+    if (lastRow <= 1) {
+      return createJSONResponse({
+        status: 'success',
+        data: [],
+        message: 'No hay entregas'
+      });
+    }
+
+    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 9).getValues();
+
+    // Filtrar por proyecto
+    const deliveries = data
+      .filter(row => row[0] === projectId)
+      .map((row, index) => ({
+        rowIndex: index + 2, // Para poder actualizar después
+        proyectoId: row[0],
+        centro: row[1],
+        direccion: row[2],
+        fechaPlanificada: row[3],
+        diaPlanificado: row[4],
+        fechaEntrega: row[5],
+        estado: row[6],
+        actividades: row[7] ? row[7].split(',') : [],
+        notas: row[8]
+      }));
+
+    // Buscar el índice real en la hoja (no el filtrado)
+    const allData = deliveriesSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    deliveries.forEach(d => {
+      for (let i = 0; i < allData.length; i++) {
+        if (allData[i][0] === projectId) {
+          const rowData = deliveriesSheet.getRange(i + 2, 1, 1, 9).getValues()[0];
+          if (rowData[1] === d.centro && rowData[3] === d.fechaPlanificada) {
+            d.rowIndex = i + 2;
+            break;
+          }
+        }
+      }
+    });
+
+    logToSheet('✅ Entregas obtenidas', { count: deliveries.length });
+
+    return createJSONResponse({
+      status: 'success',
+      data: deliveries,
+      message: `${deliveries.length} entregas del proyecto`
+    });
+
+  } catch (error) {
+    logToSheet('❌ Error obteniendo entregas', error.toString());
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error: ' + error.toString()
+    });
+  }
+}
+
+// Actualizar estado de una entrega
+function updateDeliveryStatus(projectId, centro, newStatus, fechaEntrega = null, notas = null) {
+  try {
+    logToSheet('🔄 Actualizando estado entrega', { projectId, centro, newStatus });
+
+    const { deliveriesSheet } = initProjectSheets();
+
+    const lastRow = deliveriesSheet.getLastRow();
+    if (lastRow <= 1) {
+      return createJSONResponse({
+        status: 'error',
+        message: 'No hay entregas'
+      });
+    }
+
+    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 9).getValues();
+
+    // Buscar la fila del centro en este proyecto
+    let rowIndex = -1;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0] === projectId && data[i][1] === centro) {
+        rowIndex = i + 2; // +2 porque empezamos en fila 2 y arrays en 0
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      return createJSONResponse({
+        status: 'error',
+        message: 'Entrega no encontrada'
+      });
+    }
+
+    // Actualizar estado (columna 7)
+    deliveriesSheet.getRange(rowIndex, 7).setValue(newStatus);
+
+    // Actualizar fecha de entrega si se proporciona (columna 6)
+    if (fechaEntrega) {
+      deliveriesSheet.getRange(rowIndex, 6).setValue(fechaEntrega);
+    }
+
+    // Actualizar notas si se proporcionan (columna 9)
+    if (notas) {
+      deliveriesSheet.getRange(rowIndex, 9).setValue(notas);
+    }
+
+    logToSheet('✅ Estado actualizado', { rowIndex, newStatus });
+
+    return createJSONResponse({
+      status: 'success',
+      message: 'Estado actualizado correctamente',
+      rowIndex: rowIndex
+    });
+
+  } catch (error) {
+    logToSheet('❌ Error actualizando estado', error.toString());
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error: ' + error.toString()
+    });
+  }
+}
+
+// Actualizar múltiples entregas a la vez (para marcar ruta completa)
+function updateMultipleDeliveries(projectId, centros, newStatus, fechaEntrega) {
+  try {
+    logToSheet('🔄 Actualizando múltiples entregas', { projectId, count: centros.length, newStatus });
+
+    let updated = 0;
+    let errors = 0;
+
+    for (const centro of centros) {
+      const result = JSON.parse(updateDeliveryStatus(projectId, centro, newStatus, fechaEntrega).getContent());
+      if (result.status === 'success') {
+        updated++;
+      } else {
+        errors++;
+      }
+    }
+
+    logToSheet('✅ Actualización múltiple completada', { updated, errors });
+
+    return createJSONResponse({
+      status: 'success',
+      message: `${updated} entregas actualizadas, ${errors} errores`,
+      updated: updated,
+      errors: errors
+    });
+
+  } catch (error) {
+    logToSheet('❌ Error en actualización múltiple', error.toString());
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error: ' + error.toString()
+    });
+  }
+}
+
+// Eliminar proyecto (marcar como inactivo)
+function deleteProject(projectId) {
+  try {
+    logToSheet('🗑️ Eliminando proyecto', projectId);
+
+    const { projectsSheet } = initProjectSheets();
+
+    const lastRow = projectsSheet.getLastRow();
+    if (lastRow <= 1) {
+      return createJSONResponse({
+        status: 'error',
+        message: 'Proyecto no encontrado'
+      });
+    }
+
+    const data = projectsSheet.getRange(2, 1, lastRow - 1, 8).getValues();
+
+    // Buscar la fila del proyecto
+    let rowIndex = -1;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0] === projectId) {
+        rowIndex = i + 2;
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      return createJSONResponse({
+        status: 'error',
+        message: 'Proyecto no encontrado'
+      });
+    }
+
+    // Marcar como inactivo (columna 7)
+    projectsSheet.getRange(rowIndex, 7).setValue('eliminado');
+
+    logToSheet('✅ Proyecto eliminado', { projectId, rowIndex });
+
+    return createJSONResponse({
+      status: 'success',
+      message: 'Proyecto eliminado correctamente'
+    });
+
+  } catch (error) {
+    logToSheet('❌ Error eliminando proyecto', error.toString());
+    return createJSONResponse({
+      status: 'error',
+      message: 'Error: ' + error.toString()
+    });
   }
 }
 

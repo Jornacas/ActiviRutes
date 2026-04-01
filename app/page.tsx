@@ -786,16 +786,16 @@ function generateDeliveryPlan(
     // Procesar cada día de actividades
     Object.entries(school.activities).forEach(([day, dayActivities]) => {
       const validActivities = dayActivities.filter((activity) => {
-        console.log(`   📅 Validando actividad ${activity.activity} el ${day}:`)
-        console.log(`      Fecha inicio: ${activity.courseStart}`)
-        
-        // Verificar fecha de inicio de la actividad
+        // En modo trimestral, todas las actividades son válidas (no depende de fecha de inicio)
+        if (deliveryType === "trimestral") {
+          return true
+        }
+
+        // En modo inicio-curso, verificar fecha de inicio
         if (!activity.courseStart || isNaN(activity.courseStart.getTime())) {
-          console.log(`      ❌ Fecha de inicio inválida`)
           return false
         }
 
-        // Filtrar según tipo de entrega
         if (deliveryType === "inicio-curso") {
           try {
             const activityWeekStart = startOfWeek(activity.courseStart, { weekStartsOn: 1 })
@@ -1150,7 +1150,7 @@ function HolidayManager({
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">
-              <Calendar mode="single" selected={newHolidayDate} onSelect={setNewHolidayDate} initialFocus />
+              <Calendar mode="single" selected={newHolidayDate} onSelect={setNewHolidayDate} initialFocus weekStartsOn={1} />
             </PopoverContent>
           </Popover>
           <Input
@@ -1192,99 +1192,72 @@ const dayNameMapping: { [key: string]: string } = {
   "jueves": "Dijous",
   "viernes": "Divendres"
 }
+const catalanToSpanish: { [key: string]: string } = {
+  "Dilluns": "lunes",
+  "Dimarts": "martes",
+  "Dimecres": "miércoles",
+  "Dijous": "jueves",
+  "Divendres": "viernes"
+}
+const dayOrder: { [key: string]: number } = {
+  "lunes": 0, "martes": 1, "miércoles": 2, "jueves": 3, "viernes": 4
+}
 
-// Componente principal de entregas - MODIFICADO para pasar deliveryPlans
+// Componente principal de entregas - SIMPLIFICADO
 function DeliveryModule({
   deliverySchools,
   onOpenRouteEditor,
 }: {
   deliverySchools: DeliverySchool[]
-  onOpenRouteEditor: (allPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter?: number, additionalPlans?: DeliveryPlan[]) => void
+  onOpenRouteEditor: (allPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter?: number, additionalPlans?: DeliveryPlan[], onReorganizeCb?: (items: any) => void) => void
 }) {
   const [selectedWeek, setSelectedWeek] = useState<Date>(new Date())
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("trimestral")
   const [holidays, setHolidays] = useState<Holiday[]>([])
   const [searchTerm, setSearchTerm] = useState("")
-  const [minStudents, setMinStudents] = useState<number>(0)
-
-  // Filtro de actividades - por defecto todas seleccionadas
   const [selectedActivities, setSelectedActivities] = useState<string[]>([...ALL_ACTIVITIES])
+  const [selectedPlanningDay, setSelectedPlanningDay] = useState<string>("martes")
 
-  // Centros visitados - persistencia por semana
-  const [visitedCenters, setVisitedCenters] = useState<Set<string>>(new Set())
-  const [hideVisited, setHideVisited] = useState(false)
-
-  // Día seleccionado para planificar (tabs)
-  const [selectedPlanningDay, setSelectedPlanningDay] = useState<string>("jueves")
-
-  // Clave de localStorage basada en la semana
-  const weekKey = useMemo(() => {
-    const weekStart = startOfWeek(selectedWeek, { weekStartsOn: 1 })
-    return `visitedCenters_${format(weekStart, 'yyyy-MM-dd')}`
-  }, [selectedWeek])
-
-  // Cargar centros visitados del localStorage al cambiar de semana
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(weekKey)
-      if (saved) {
-        setVisitedCenters(new Set(JSON.parse(saved)))
-      } else {
-        setVisitedCenters(new Set())
-      }
-    } catch {
-      setVisitedCenters(new Set())
-    }
-  }, [weekKey])
-
-  // Guardar centros visitados en localStorage
-  const toggleVisited = useCallback((schoolName: string) => {
-    setVisitedCenters(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(schoolName)) {
-        newSet.delete(schoolName)
-      } else {
-        newSet.add(schoolName)
-      }
-      // Guardar en localStorage
-      try {
-        localStorage.setItem(weekKey, JSON.stringify([...newSet]))
-      } catch {
-        // Ignorar errores de localStorage
-      }
-      return newSet
-    })
-  }, [weekKey])
-
-  // Reiniciar semana
-  const resetVisited = useCallback(() => {
-    setVisitedCenters(new Set())
-    try {
-      localStorage.removeItem(weekKey)
-    } catch {
-      // Ignorar errores
-    }
-  }, [weekKey])
-
-  // Debounced search term para optimizar rendimiento
   const debouncedSearchTerm = useDebounced(searchTerm, 300)
 
+  // Pre-filtrar escuelas por actividades seleccionadas ANTES de generar el plan
+  // Esto es crucial: el filtro de actividades afecta qué días tiene cada centro,
+  // y por tanto a qué día se le asigna la entrega
+  const filteredDeliverySchools = useMemo(() => {
+    const allActivitiesSelected = selectedActivities.length === ALL_ACTIVITIES.length
+    if (allActivitiesSelected) return deliverySchools
 
-  
+    return deliverySchools.map(school => {
+      const filteredActivities: typeof school.activities = {}
+
+      Object.entries(school.activities).forEach(([day, dayActivities]) => {
+        const matching = dayActivities.filter(a => {
+          const code = a.activity.replace(/\d+[A-Z]?$/, "")
+          return selectedActivities.includes(code)
+        })
+        if (matching.length > 0) {
+          filteredActivities[day] = matching
+        }
+      })
+
+      return { ...school, activities: filteredActivities }
+    }).filter(school => Object.keys(school.activities).length > 0)
+  }, [deliverySchools, selectedActivities])
+
+  // Generar planes de entrega para la semana (con escuelas ya filtradas)
   const deliveryPlans = useMemo(() => {
-    return generateDeliveryPlan(deliverySchools, selectedWeek, deliveryType, holidays)
-  }, [deliverySchools, selectedWeek, deliveryType, holidays])
+    return generateDeliveryPlan(filteredDeliverySchools, selectedWeek, deliveryType, holidays)
+  }, [filteredDeliverySchools, selectedWeek, deliveryType, holidays])
 
-  // Planes de la SEMANA SIGUIENTE (para adelantar entregas)
+  // Planes de la SEMANA SIGUIENTE (para aprovechar rutas)
   const nextWeekPlans = useMemo(() => {
     const nextWeek = addDays(selectedWeek, 7)
-    return generateDeliveryPlan(deliverySchools, nextWeek, deliveryType, holidays)
-  }, [deliverySchools, selectedWeek, deliveryType, holidays])
+    return generateDeliveryPlan(filteredDeliverySchools, nextWeek, deliveryType, holidays)
+  }, [filteredDeliverySchools, selectedWeek, deliveryType, holidays])
 
-  // Centros seleccionados de la semana siguiente para adelantar
+  // Centros seleccionados de la semana siguiente
   const [selectedNextWeekCenters, setSelectedNextWeekCenters] = useState<Set<string>>(new Set())
 
-  // Toggle selección de centro de semana siguiente
   const toggleNextWeekCenter = useCallback((schoolName: string) => {
     setSelectedNextWeekCenters(prev => {
       const newSet = new Set(prev)
@@ -1297,201 +1270,128 @@ function DeliveryModule({
     })
   }, [])
 
-  // Planes de semana siguiente agrupados por día
-  const nextWeekPlansByDay = useMemo(() => {
-    const grouped: { [key: string]: typeof nextWeekPlans } = {}
-    nextWeekPlans.forEach((plan) => {
-      const dayKey = format(plan.deliveryDate, "EEEE", { locale: es })
-      if (!grouped[dayKey]) {
-        grouped[dayKey] = []
-      }
-      grouped[dayKey].push(plan)
-    })
-    return grouped
-  }, [nextWeekPlans])
-
-  // Optimized filteredPlans con debounced search y memoización mejorada
-  // Este filtro NO incluye el filtro de visitados para poder contar correctamente
+  // Filtrar planes por búsqueda (actividades ya filtradas en filteredDeliverySchools)
   const filteredPlans = useMemo(() => {
     if (!deliveryPlans.length) return []
+    if (!debouncedSearchTerm) return deliveryPlans
 
     const lowerSearchTerm = debouncedSearchTerm.toLowerCase()
-    const allActivitiesSelected = selectedActivities.length === ALL_ACTIVITIES.length
 
-    return deliveryPlans.filter((plan) => {
-      // Early return si no hay criterios de filtro
-      if (!lowerSearchTerm && minStudents === 0 && allActivitiesSelected) return true
+    return deliveryPlans.filter((plan) =>
+      plan.school.name.toLowerCase().includes(lowerSearchTerm) ||
+      plan.activities.some((activity) => activity.activity.toLowerCase().includes(lowerSearchTerm))
+    )
+  }, [deliveryPlans, debouncedSearchTerm])
 
-      // Filtro por búsqueda de texto (optimizado)
-      const matchesSearch = !lowerSearchTerm ||
-        plan.school.name.toLowerCase().includes(lowerSearchTerm) ||
-        plan.activities.some((activity) => activity.activity.toLowerCase().includes(lowerSearchTerm))
+  // Días laborables disponibles (excluyendo festivos)
+  const availableDays = useMemo(() => {
+    const weekStart = startOfWeek(selectedWeek, { weekStartsOn: 1 })
+    const result: string[] = []
 
-      // Filtro por número mínimo de alumnos (optimizado)
-      const hasMinStudents = minStudents === 0 ||
-        plan.activities.some((activity) => (activity.totalStudents || 0) >= minStudents)
-
-      // Filtro por actividades seleccionadas
-      // El centro se muestra si tiene AL MENOS UNA actividad de las seleccionadas
-      const hasSelectedActivity = allActivitiesSelected ||
-        plan.activities.some((activity) => {
-          // Extraer el código de actividad (TC, CO, JC, DX) del nombre (ej: "TC1", "CO2A")
-          const activityCode = activity.activity.replace(/\d+[A-Z]?$/, "")
-          return selectedActivities.includes(activityCode)
-        })
-
-      return matchesSearch && hasMinStudents && hasSelectedActivity
-    })
-  }, [deliveryPlans, debouncedSearchTerm, minStudents, selectedActivities, ALL_ACTIVITIES.length])
-
-  // Planes a mostrar (con filtro de visitados si está activo)
-  const displayPlans = useMemo(() => {
-    if (!hideVisited) return filteredPlans
-    return filteredPlans.filter(plan => !visitedCenters.has(plan.school.name))
-  }, [filteredPlans, hideVisited, visitedCenters])
-
-  // Estadísticas de progreso
-  const visitedStats = useMemo(() => {
-    const totalCenters = filteredPlans.length
-    const visitedCount = filteredPlans.filter(plan => visitedCenters.has(plan.school.name)).length
-    const pendingCount = totalCenters - visitedCount
-    const percentage = totalCenters > 0 ? Math.round((visitedCount / totalCenters) * 100) : 0
-    return { totalCenters, visitedCount, pendingCount, percentage }
-  }, [filteredPlans, visitedCenters])
-
-  // Cache para días formateados
-  const dayFormatCache = useMemo(() => new Map<string, string>(), [])
-
-  const plansByDay = useMemo(() => {
-    const grouped: { [key: string]: DeliveryPlan[] } = {}
-
-    displayPlans.forEach((plan) => {
-      const dateKey = plan.deliveryDate.toDateString()
-
-      // Usar cache para evitar format() repetidos
-      let dayKey = dayFormatCache.get(dateKey)
-      if (!dayKey) {
-        dayKey = format(plan.deliveryDate, "EEEE", { locale: es })
-        dayFormatCache.set(dateKey, dayKey)
-      }
-
-      if (!grouped[dayKey]) {
-        grouped[dayKey] = []
-      }
-      grouped[dayKey].push(plan)
-    })
-    return grouped
-  }, [displayPlans, dayFormatCache])
-
-  // Centros que tienen actividad en el día seleccionado (para poder añadirlos)
-  // Esto incluye centros de CUALQUIER día que tengan actividad el día seleccionado
-  const centersWithActivityOnDay = useMemo(() => {
-    const result: { [day: string]: DeliveryPlan[] } = {}
-
-    WEEKDAYS.forEach(day => {
-      const catalanDay = dayNameMapping[day]
-      result[day] = filteredPlans.filter(plan =>
-        plan.activities.some(activity => activity.day === catalanDay)
-      )
+    WEEKDAYS.forEach((day, index) => {
+      const dayDate = addDays(weekStart, index)
+      const isHoliday = holidays.some(h => {
+        try { return h.date && !isNaN(h.date.getTime()) && isSameDay(h.date, dayDate) }
+        catch { return false }
+      })
+      if (!isHoliday) result.push(day)
     })
 
     return result
-  }, [filteredPlans])
+  }, [selectedWeek, holidays])
 
-  // Centros asignados al día seleccionado según lógica actual
-  const assignedToSelectedDay = useMemo(() => {
-    const catalanDay = dayNameMapping[selectedPlanningDay]
-    // Capitalizar primera letra para que coincida con el formato del sistema
-    const formattedDay = catalanDay.charAt(0).toUpperCase() + catalanDay.slice(1).toLowerCase()
-    return plansByDay[formattedDay] || []
-  }, [plansByDay, selectedPlanningDay])
+  // Estado para reorganizaciones guardadas desde el editor de rutas
+  const [savedReorganization, setSavedReorganization] = useState<{ [day: string]: any[] } | null>(null)
 
-  // Centros de otros días que podría añadir (tienen actividad el día seleccionado pero están asignados a otro día)
-  const availableFromOtherDays = useMemo(() => {
-    const catalanDay = dayNameMapping[selectedPlanningDay]
+  // Cargar reorganización guardada cuando cambia la semana o tipo
+  const weekStartStr = useMemo(() => format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd'), [selectedWeek])
 
-    return filteredPlans.filter(plan => {
-      // Tiene actividad el día seleccionado
-      const hasActivityOnDay = plan.activities.some(activity => activity.day === catalanDay)
-      // Pero está asignado a otro día
-      const assignedDay = format(plan.deliveryDate, "EEEE", { locale: es }).toLowerCase()
-      const isAssignedToOtherDay = assignedDay !== selectedPlanningDay
-      // Y no ha sido visitado
-      const notVisited = !visitedCenters.has(plan.school.name)
-
-      return hasActivityOnDay && isAssignedToOtherDay && notVisited
-    })
-  }, [filteredPlans, selectedPlanningDay, visitedCenters])
-
-  // Estado para centros adicionales seleccionados (de otros días de la misma semana)
-  // Map: schoolName -> día para el que se seleccionó (ej: "Brusi" -> "jueves")
-  const [selectedOtherDayCenters, setSelectedOtherDayCenters] = useState<Map<string, string>>(new Map())
-
-  const toggleOtherDayCenter = useCallback((schoolName: string, forDay: string) => {
-    setSelectedOtherDayCenters(prev => {
-      const newMap = new Map(prev)
-      if (newMap.get(schoolName) === forDay) {
-        // Si ya está seleccionado para este día, lo quitamos
-        newMap.delete(schoolName)
+  useEffect(() => {
+    try {
+      const key = `reorganization_${deliveryType}_${weekStartStr}`
+      const saved = localStorage.getItem(key)
+      if (saved) {
+        const data = JSON.parse(saved)
+        setSavedReorganization(data.reorganizedItems || null)
       } else {
-        // Lo seleccionamos para este día
-        newMap.set(schoolName, forDay)
+        setSavedReorganization(null)
       }
-      return newMap
-    })
+    } catch {
+      setSavedReorganization(null)
+    }
+  }, [deliveryType, weekStartStr])
+
+  // Escuchar cambios del editor de rutas (callback onApplyChanges)
+  const handleRouteReorganization = useCallback((reorganizedItems: { [day: string]: any[] }) => {
+    setSavedReorganization(reorganizedItems)
   }, [])
 
-  const generateRouteForDay = (plans: DeliveryPlan[]) => {
-    const addresses = plans
-      .map((plan) => {
-        const schoolName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
-        return encodeURIComponent(`${schoolName}, ${plan.school.address}, Barcelona`)
+  // Agrupar centros por día: usa reorganización guardada si existe, si no distribución automática
+  const plansByDay = useMemo(() => {
+    const grouped: { [key: string]: DeliveryPlan[] } = {}
+    availableDays.forEach(day => { grouped[day] = [] })
+
+    // Si hay reorganización guardada, usarla
+    if (savedReorganization) {
+      // Crear un mapa de centro -> día desde la reorganización
+      const centerToDay: { [name: string]: string } = {}
+      Object.entries(savedReorganization).forEach(([day, items]) => {
+        // El día puede venir en catalán (Dimarts) o español (martes)
+        const spanishDay = catalanToSpanish[day] || day.toLowerCase()
+        items.forEach((item: any) => {
+          const name = item.id || item.name
+          if (name) centerToDay[name] = spanishDay
+        })
       })
-      .join("|")
-    const routeXLUrl = `https://www.routexl.com/route?addresses=${addresses}`
-    window.open(routeXLUrl, "_blank")
-  }
 
-  const exportDayToCsv = (dayName: string, plans: DeliveryPlan[]) => {
-    const csvContent = [
-      "Orden,Centro,Dirección,Actividades,Turno,Motivo",
-      ...plans.map((plan, index) => {
-        const schoolName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
-        const activities = plan.activities.map((a) => `${a.activity} (${a.day})`).join("; ")
-        const turns = [...new Set(plan.activities.map((a) => a.turn))].join("; ")
-        return `${index + 1},"${schoolName}","${plan.school.address}, Barcelona","${activities}","${turns}","${plan.reason}"`
-      }),
-    ].join("\n")
+      filteredPlans.forEach(plan => {
+        const assignedDay = centerToDay[plan.school.name]
+        if (assignedDay && grouped[assignedDay]) {
+          grouped[assignedDay].push(plan)
+        } else {
+          // Centro no está en la reorganización (nuevo?), usar lógica por defecto
+          const spanishDay = catalanToSpanish[plan.deliveryDay]
+          if (spanishDay && grouped[spanishDay]) {
+            grouped[spanishDay].push(plan)
+          } else if (availableDays.length > 0) {
+            grouped[availableDays[0]].push(plan)
+          }
+        }
+      })
+    } else {
+      // Sin reorganización: distribución automática por primer día con actividades
+      filteredPlans.forEach(plan => {
+        const spanishDay = catalanToSpanish[plan.deliveryDay]
+        if (spanishDay && grouped[spanishDay]) {
+          grouped[spanishDay].push(plan)
+        } else if (availableDays.length > 0) {
+          grouped[availableDays[0]].push(plan)
+        }
+      })
+    }
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `entregas_${dayName}_${format(selectedWeek, "yyyy-MM-dd")}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
-  }
+    return grouped
+  }, [filteredPlans, availableDays, savedReorganization])
 
   return (
     <div className="space-y-6">
       {/* Controles principales */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-2">Tipo de Entrega</label>
+          <label className="block text-sm font-medium mb-2">Modo</label>
           <Select value={deliveryType} onValueChange={(value: DeliveryType) => setDeliveryType(value)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="inicio-curso">Inicio de Curso</SelectItem>
-              <SelectItem value="trimestral">Trimestral</SelectItem>
-              <SelectItem value="puntual">Puntual</SelectItem>
+              <SelectItem value="trimestral">Trimestral (todos a la vez)</SelectItem>
+              <SelectItem value="inicio-curso">Inicio de curso (progresivo)</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2">Semana de Entrega</label>
+          <label className="block text-sm font-medium mb-2">Semana de entrega</label>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
@@ -1505,6 +1405,7 @@ function DeliveryModule({
                 selected={selectedWeek}
                 onSelect={(date) => date && setSelectedWeek(date)}
                 initialFocus
+                weekStartsOn={1}
               />
             </PopoverContent>
           </Popover>
@@ -1522,28 +1423,11 @@ function DeliveryModule({
             />
           </div>
         </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-2">Alumnos Mínimos</label>
-          <Select value={minStudents.toString()} onValueChange={(value) => setMinStudents(Number.parseInt(value))}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="0">0+ alumnos</SelectItem>
-              <SelectItem value="1">1+ alumnos</SelectItem>
-              <SelectItem value="2">2+ alumnos</SelectItem>
-              <SelectItem value="3">3+ alumnos</SelectItem>
-              <SelectItem value="4">4+ alumnos</SelectItem>
-              <SelectItem value="5">5+ alumnos</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
       {/* Filtro de actividades */}
       <div className="flex flex-wrap items-center gap-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-        <span className="text-sm font-medium">Filtrar actividades:</span>
+        <span className="text-sm font-medium">Actividades:</span>
         <div className="flex flex-wrap gap-4">
           {ALL_ACTIVITIES.map((activity) => (
             <label key={activity} className="flex items-center gap-2 cursor-pointer">
@@ -1579,377 +1463,361 @@ function DeliveryModule({
             Ninguna
           </Button>
         </div>
-        {selectedActivities.length < ALL_ACTIVITIES.length && selectedActivities.length > 0 && (
-          <Badge variant="secondary" className="ml-2">
-            {selectedActivities.length} de {ALL_ACTIVITIES.length} seleccionadas
-          </Badge>
-        )}
       </div>
 
       {/* Gestión de festivos */}
       <HolidayManager holidays={holidays} onHolidaysChange={setHolidays} />
 
-      {/* Resumen de la semana */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Truck className="h-5 w-5 mr-2" />
-            Plan de Entregas - Semana del{" "}
-            {format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "PPP", { locale: es })}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{filteredPlans.length}</div>
-              <div className="text-sm text-gray-500">Centros Total</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">
-                {filteredPlans.filter((p) => p.consolidated).length}
-              </div>
-              <div className="text-sm text-gray-500">Consolidados</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-orange-600">{Object.keys(plansByDay).length}</div>
-              <div className="text-sm text-gray-500">Días Activos</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">
-                {filteredPlans.reduce((sum, plan) => sum + plan.activities.length, 0)}
-              </div>
-              <div className="text-sm text-gray-500">Actividades Total</div>
-            </div>
+      {/* Resumen rápido + botones exportar */}
+      <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
+        <div className="flex items-center gap-4">
+          <Truck className="h-5 w-5 text-blue-600 flex-shrink-0" />
+          <div className="text-sm">
+            <span className="font-semibold text-blue-800">{filteredPlans.length} centros</span>
+            <span className="text-blue-600"> repartidos en </span>
+            <span className="font-semibold text-blue-800">{availableDays.length} días</span>
+            <span className="text-blue-600"> &middot; Semana del </span>
+            <span className="font-semibold text-blue-800">
+              {format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "d 'de' MMMM", { locale: es })}
+            </span>
+            {holidays.length > 0 && (
+              <span className="text-orange-600 ml-2">
+                ({holidays.length} festivo{holidays.length > 1 ? 's' : ''})
+              </span>
+            )}
           </div>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const weekLabel = format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "d-MM-yyyy")
+              const bom = "\uFEFF"
+              const rows = ["Día;Orden;Centro;Dirección;Actividades"]
 
-          {/* Progreso de visitas */}
-          <div className="border-t pt-4 mt-4">
-            <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-medium">Progreso:</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-48 h-3 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 transition-all duration-300"
-                      style={{ width: `${visitedStats.percentage}%` }}
-                    />
-                  </div>
-                  <span className="text-sm font-medium">
-                    {visitedStats.visitedCount}/{visitedStats.totalCenters}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Badge variant={visitedStats.pendingCount > 0 ? "destructive" : "default"} className="text-sm">
-                  {visitedStats.pendingCount} pendientes
-                </Badge>
-                <Badge variant="secondary" className="text-sm bg-green-100 text-green-800">
-                  {visitedStats.visitedCount} visitados
-                </Badge>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={hideVisited}
-                  onCheckedChange={(checked) => setHideVisited(!!checked)}
-                />
-                <span className="text-sm">Ocultar visitados</span>
-              </label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={resetVisited}
-                disabled={visitedStats.visitedCount === 0}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-              >
-                <X className="h-4 w-4 mr-1" />
-                Reiniciar semana
-              </Button>
-              {hideVisited && visitedStats.visitedCount > 0 && (
-                <span className="text-sm text-gray-500">
-                  Mostrando {displayPlans.length} de {filteredPlans.length} centros
-                </span>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+              availableDays.forEach(day => {
+                const plans = plansByDay[day] || []
+                const catalanDay = dayNameMapping[day]
+                const dayLabel = catalanDay.charAt(0).toUpperCase() + catalanDay.slice(1)
 
-      {/* Tabs por día de la semana */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <CalendarIcon className="h-5 w-5 mr-2" />
-            Planificación por día
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {/* Tabs de días */}
-          <Tabs value={selectedPlanningDay} onValueChange={setSelectedPlanningDay} className="w-full">
-            <TabsList className="grid w-full grid-cols-5 mb-4">
+                if (plans.length === 0) return
+
+                plans.forEach((plan, i) => {
+                  const name = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
+                  const activities = plan.activities.map(a => a.activity).join(", ")
+                  rows.push(`${dayLabel};${i + 1};${name};${plan.school.address};${activities}`)
+                })
+              })
+
+              const blob = new Blob([bom + rows.join("\n")], { type: "text/csv;charset=utf-8" })
+              const url = window.URL.createObjectURL(blob)
+              const a = document.createElement("a")
+              a.href = url
+              a.download = `entregas_semana_${weekLabel}.csv`
+              a.click()
+              window.URL.revokeObjectURL(url)
+            }}
+            disabled={filteredPlans.length === 0}
+          >
+            <ExternalLink className="h-4 w-4 mr-1" />
+            Exportar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const weekLabel = format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "d 'de' MMMM yyyy", { locale: es })
+              let html = `
+                <html><head><title>Entregas - Semana del ${weekLabel}</title>
+                <style>
+                  body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
+                  h1 { font-size: 18px; margin-bottom: 4px; }
+                  h2 { font-size: 15px; color: #2563eb; margin-top: 24px; margin-bottom: 8px; border-bottom: 2px solid #2563eb; padding-bottom: 4px; }
+                  .subtitle { color: #666; font-size: 13px; margin-bottom: 20px; }
+                  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+                  th { background: #f0f4ff; text-align: left; padding: 6px 10px; border: 1px solid #ddd; font-weight: 600; }
+                  td { padding: 6px 10px; border: 1px solid #ddd; }
+                  tr:nth-child(even) { background: #f9fafb; }
+                  .activities { color: #555; font-size: 12px; }
+                  @media print { body { padding: 0; } }
+                </style></head><body>
+                <h1>Plan de Entregas - Semana del ${weekLabel}</h1>
+                <div class="subtitle">${filteredPlans.length} centros &middot; ${availableDays.length} días &middot; ${selectedActivities.join(", ")}</div>
+              `
+
+              availableDays.forEach(day => {
+                const plans = plansByDay[day] || []
+                const catalanDay = dayNameMapping[day]
+                const dayLabel = catalanDay.charAt(0).toUpperCase() + catalanDay.slice(1)
+
+                if (plans.length === 0) return
+
+                html += `<h2>${dayLabel} (${plans.length} centros)</h2>`
+                html += `<table><tr><th>#</th><th>Centro</th><th>Dirección</th><th>Actividades</th></tr>`
+
+                plans.forEach((plan, i) => {
+                  const name = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
+                  const activities = plan.activities.map(a => `${a.activity} (${a.day})`).join(", ")
+                  html += `<tr><td>${i + 1}</td><td><strong>${name}</strong></td><td>${plan.school.address}</td><td class="activities">${activities}</td></tr>`
+                })
+
+                html += `</table>`
+              })
+
+              html += `</body></html>`
+
+              const printWindow = window.open("", "_blank")
+              if (printWindow) {
+                printWindow.document.write(html)
+                printWindow.document.close()
+                printWindow.focus()
+                setTimeout(() => printWindow.print(), 500)
+              }
+            }}
+            disabled={filteredPlans.length === 0}
+          >
+            <Truck className="h-4 w-4 mr-1" />
+            Imprimir
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabs por día */}
+      {filteredPlans.length > 0 ? (
+        <Card>
+          <CardContent className="pt-6">
+            <Tabs value={selectedPlanningDay} onValueChange={setSelectedPlanningDay} className="w-full">
+              <TabsList className="grid w-full grid-cols-5 mb-4">
+                {WEEKDAYS.map(day => {
+                  const isHoliday = !availableDays.includes(day)
+                  const count = plansByDay[day]?.length || 0
+                  return (
+                    <TabsTrigger
+                      key={day}
+                      value={day}
+                      disabled={isHoliday}
+                      className={cn(
+                        "flex flex-col py-2 data-[state=active]:bg-blue-100",
+                        isHoliday && "opacity-40 line-through"
+                      )}
+                    >
+                      <span className="capitalize text-sm">{day}</span>
+                      <span className="text-xs text-gray-500">
+                        {isHoliday ? "festivo" : count > 0 ? `${count} centros` : "—"}
+                      </span>
+                    </TabsTrigger>
+                  )
+                })}
+              </TabsList>
+
               {WEEKDAYS.map(day => {
                 const catalanDay = dayNameMapping[day]
                 const formattedDay = catalanDay.charAt(0).toUpperCase() + catalanDay.slice(1).toLowerCase()
-                const count = plansByDay[formattedDay]?.length || 0
-                const hasActivity = centersWithActivityOnDay[day]?.length || 0
+                const assignedPlans = plansByDay[day] || []
+                const isHoliday = !availableDays.includes(day)
+
+                // Centros seleccionados de semana siguiente para este día
+                const nextWeekSelectedForDay = nextWeekPlans.filter(p => selectedNextWeekCenters.has(p.school.name))
+                const totalForRoute = assignedPlans.length + nextWeekSelectedForDay.length
+
                 return (
-                  <TabsTrigger
-                    key={day}
-                    value={day}
-                    className="flex flex-col py-2 data-[state=active]:bg-blue-100"
-                  >
-                    <span className="capitalize text-sm">{day}</span>
-                    <span className="text-xs text-gray-500">
-                      {count > 0 ? `${count} asign.` : hasActivity > 0 ? `${hasActivity} disp.` : "—"}
-                    </span>
-                  </TabsTrigger>
-                )
-              })}
-            </TabsList>
-
-            {WEEKDAYS.map(day => {
-              const catalanDay = dayNameMapping[day]
-              const formattedDay = catalanDay.charAt(0).toUpperCase() + catalanDay.slice(1).toLowerCase()
-              const assignedPlans = plansByDay[formattedDay] || []
-
-              // Filtrar centros disponibles: tienen actividad este día, NO están visitados,
-              // y NO están ya seleccionados para OTRO día
-              const availableOtherDays = filteredPlans.filter(plan => {
-                const hasActivityOnDay = plan.activities.some(a => a.day === catalanDay)
-                const assignedDay = format(plan.deliveryDate, "EEEE", { locale: es })
-                const isVisited = visitedCenters.has(plan.school.name)
-                const selectedForOtherDay = selectedOtherDayCenters.has(plan.school.name) &&
-                                            selectedOtherDayCenters.get(plan.school.name) !== day
-                return hasActivityOnDay && assignedDay !== formattedDay && !isVisited && !selectedForOtherDay
-              })
-
-              // Calcular totales para el botón (solo los seleccionados PARA ESTE DÍA)
-              const selectedOtherCount = availableOtherDays.filter(p => selectedOtherDayCenters.get(p.school.name) === day).length
-              const selectedNextWeekCount = selectedNextWeekCenters.size
-
-              return (
-                <TabsContent key={day} value={day} className="space-y-4">
-                  {/* Cabecera del día con botón de ruta */}
-                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                    <div>
-                      <h3 className="font-semibold capitalize">{day}</h3>
-                      <p className="text-sm text-gray-600">
-                        {assignedPlans.length} centros asignados
-                        {availableOtherDays.length > 0 && ` · ${availableOtherDays.length} disponibles de otros días`}
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => {
-                        // Combinar planes asignados + seleccionados de otros días (para este día) + semana siguiente
-                        const otherDayPlans = availableOtherDays.filter(p => selectedOtherDayCenters.get(p.school.name) === day)
-                        const nextWeekSelectedPlans = nextWeekPlans.filter(p => selectedNextWeekCenters.has(p.school.name))
-                        const allPlans = [...assignedPlans, ...otherDayPlans, ...nextWeekSelectedPlans]
-
-                        onOpenRouteEditor(
-                          allPlans,
-                          formattedDay,
-                          deliveryType,
-                          format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-                          minStudents,
-                          []
-                        )
-                      }}
-                      disabled={assignedPlans.length === 0 && selectedOtherCount === 0 && selectedNextWeekCount === 0}
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Route className="h-4 w-4 mr-2" />
-                      Editar Ruta ({assignedPlans.length}
-                      {selectedOtherCount > 0 ? ` +${selectedOtherCount}` : ""}
-                      {selectedNextWeekCount > 0 ? ` +${selectedNextWeekCount}` : ""})
-                    </Button>
-                  </div>
-
-                  {/* Centros asignados a este día */}
-                  {assignedPlans.length > 0 && (
-                    <div className="space-y-3">
-                      <h4 className="font-medium text-gray-700 flex items-center">
-                        <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
-                        Centros asignados ({assignedPlans.length})
-                      </h4>
-                      <div className="space-y-2">
-                        {assignedPlans.map((plan, index) => {
-                          const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
-                          const isVisited = visitedCenters.has(plan.school.name)
-                          return (
-                            <div
-                              key={`${plan.school.name}-${index}`}
-                              className={cn(
-                                "flex items-center gap-3 p-3 rounded-lg border",
-                                isVisited ? "bg-green-50 border-green-200" : "bg-white border-gray-200"
-                              )}
+                  <TabsContent key={day} value={day} className="space-y-4">
+                    {isHoliday ? (
+                      <div className="text-center py-8 text-gray-400">
+                        <CalendarIcon className="h-12 w-12 mx-auto mb-3" />
+                        <p>Este día es festivo</p>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Cabecera del día */}
+                        <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                          <div>
+                            <h3 className="font-semibold capitalize">{formattedDay}</h3>
+                            <p className="text-sm text-gray-600">
+                              {assignedPlans.length} centros
+                              {nextWeekSelectedForDay.length > 0 && ` + ${nextWeekSelectedForDay.length} adelantados`}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={() => {
+                                // Pasar TODOS los centros de la semana (+ adelantados) para vista semanal completa
+                                const allWeekPlans = filteredPlans.map(plan => ({
+                                  ...plan,
+                                  // Asignar el día correcto según plansByDay
+                                  deliveryDay: (() => {
+                                    for (const [d, plans] of Object.entries(plansByDay)) {
+                                      if (plans.some(p => p.school.name === plan.school.name)) {
+                                        return dayNameMapping[d] || plan.deliveryDay
+                                      }
+                                    }
+                                    return plan.deliveryDay
+                                  })()
+                                }))
+                                onOpenRouteEditor(
+                                  [...allWeekPlans, ...nextWeekSelectedForDay],
+                                  formattedDay,
+                                  deliveryType,
+                                  format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+                                  0,
+                                  [],
+                                  handleRouteReorganization
+                                )
+                              }}
+                              disabled={totalForRoute === 0}
+                              className="bg-blue-600 hover:bg-blue-700"
                             >
-                              <Checkbox
-                                checked={isVisited}
-                                onCheckedChange={() => toggleVisited(plan.school.name)}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className={cn("font-medium", isVisited && "line-through text-green-700")}>
-                                  {schoolDisplayName}
+                              <Route className="h-4 w-4 mr-2" />
+                              Editar Ruta ({totalForRoute})
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                // Placeholder: en futuro se puede conectar a tracking
+                                alert(`Ruta de ${formattedDay} marcada como entregada (${totalForRoute} centros)`)
+                              }}
+                              disabled={totalForRoute === 0}
+                              className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-300"
+                            >
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Ruta entregada
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Lista de centros asignados */}
+                        {assignedPlans.length > 0 && (
+                          <div className="space-y-2">
+                            {assignedPlans.map((plan, index) => {
+                              const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
+                              return (
+                                <div
+                                  key={`${plan.school.name}-${index}`}
+                                  className="flex items-center gap-3 p-3 rounded-lg border bg-white border-gray-200"
+                                >
+                                  <div className="bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                    {index + 1}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium">{schoolDisplayName}</div>
+                                    <div className="text-sm text-gray-500 truncate">{plan.school.address}</div>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {plan.activities.map((a, i) => (
+                                        <Badge key={i} variant="secondary" className="text-xs">
+                                          {a.activity} ({a.day})
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="text-sm text-gray-500 truncate">
-                                  {plan.school.address}
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {/* Centros adelantados de semana siguiente (ya seleccionados) */}
+                        {nextWeekSelectedForDay.length > 0 && (
+                          <div className="space-y-2 border-t pt-4">
+                            <h4 className="font-medium text-blue-700 text-sm flex items-center">
+                              <Plus className="h-4 w-4 mr-1" />
+                              Adelantados de próxima semana ({nextWeekSelectedForDay.length})
+                            </h4>
+                            {nextWeekSelectedForDay.map((plan, index) => {
+                              const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
+                              return (
+                                <div
+                                  key={`next-${plan.school.name}-${index}`}
+                                  className="flex items-center gap-3 p-3 rounded-lg border bg-blue-50 border-blue-200"
+                                >
+                                  <Checkbox
+                                    checked={true}
+                                    onCheckedChange={() => toggleNextWeekCenter(plan.school.name)}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium">{schoolDisplayName}</div>
+                                    <div className="text-sm text-gray-500 truncate">{plan.school.address}</div>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {plan.activities.map((a, i) => (
+                                        <Badge key={i} variant="secondary" className="text-xs">
+                                          {a.activity} ({a.day})
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {plan.activities.map((a, i) => (
-                                    <Badge key={i} variant="secondary" className="text-xs">
-                                      {a.activity} ({a.day})
-                                    </Badge>
-                                  ))}
-                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {/* Aprovechar ruta: centros de próxima semana (excluir TODOS los de esta semana) */}
+                        {(() => {
+                          const allCurrentWeekCenters = new Set(filteredPlans.map(p => p.school.name))
+                          const availableNextWeek = nextWeekPlans.filter(
+                            plan => !allCurrentWeekCenters.has(plan.school.name) && !selectedNextWeekCenters.has(plan.school.name)
+                          )
+
+                          if (availableNextWeek.length === 0) return null
+
+                          return (
+                            <div className="space-y-3 border-t pt-4">
+                              <div className="flex items-center justify-between">
+                                <h4 className="font-medium text-gray-600 text-sm flex items-center">
+                                  <CalendarIcon className="h-4 w-4 mr-2 text-blue-500" />
+                                  Aprovechar ruta: {availableNextWeek.length} centros de la semana siguiente
+                                </h4>
                               </div>
-                              {isVisited && (
-                                <Badge className="bg-green-600 text-white">Visitado</Badge>
-                              )}
+                              <p className="text-xs text-gray-500">
+                                Estos centros necesitan material la semana que viene. Puedes adelantar su entrega y aprovechar la ruta de hoy.
+                              </p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                                {availableNextWeek.map((plan) => {
+                                  const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
+                                  return (
+                                    <label
+                                      key={plan.school.name}
+                                      className="flex items-center gap-2 p-2 rounded-lg cursor-pointer border bg-gray-50 border-gray-200 hover:bg-blue-50 hover:border-blue-200"
+                                    >
+                                      <Checkbox
+                                        checked={false}
+                                        onCheckedChange={() => toggleNextWeekCenter(plan.school.name)}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-sm font-medium truncate block">{schoolDisplayName}</span>
+                                        <span className="text-xs text-gray-500">
+                                          {plan.activities.map(a => a.activity).join(", ")}
+                                        </span>
+                                      </div>
+                                    </label>
+                                  )
+                                })}
+                              </div>
                             </div>
                           )
-                        })}
-                      </div>
-                    </div>
-                  )}
+                        })()}
 
-                  {/* Centros de otros días disponibles para añadir */}
-                  {availableOtherDays.length > 0 && (
-                    <div className="space-y-3 border-t pt-4">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium text-gray-700 flex items-center">
-                          <Plus className="h-4 w-4 mr-2 text-orange-600" />
-                          Añadir de otros días ({availableOtherDays.length})
-                        </h4>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => availableOtherDays.forEach(p => {
-                              if (selectedOtherDayCenters.get(p.school.name) !== day) toggleOtherDayCenter(p.school.name, day)
-                            })}
-                          >
-                            Todos
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => availableOtherDays.forEach(p => {
-                              if (selectedOtherDayCenters.get(p.school.name) === day) toggleOtherDayCenter(p.school.name, day)
-                            })}
-                          >
-                            Ninguno
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {availableOtherDays.map((plan) => {
-                          const isSelected = selectedOtherDayCenters.get(plan.school.name) === day
-                          const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
-                          const assignedDay = format(plan.deliveryDate, "EEEE", { locale: es })
-                          return (
-                            <label
-                              key={plan.school.name}
-                              className={cn(
-                                "flex items-center gap-2 p-2 rounded-lg cursor-pointer border",
-                                isSelected ? "bg-orange-50 border-orange-300" : "bg-gray-50 border-gray-200 hover:bg-gray-100"
-                              )}
-                            >
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() => toggleOtherDayCenter(plan.school.name, day)}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm font-medium truncate block">{schoolDisplayName}</span>
-                                <span className="text-xs text-gray-500">Asignado: {assignedDay}</span>
-                              </div>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Centros de semana siguiente - filtrados para excluir los que ya están en ruta hoy */}
-                  {(() => {
-                    // Filtrar centros de semana siguiente que NO están ya en la ruta de hoy
-                    const centersInTodayRoute = new Set([
-                      ...assignedPlans.map(p => p.school.name),
-                      ...Array.from(selectedOtherDayCenters.keys()),
-                      ...Array.from(visitedCenters)
-                    ])
-                    const availableNextWeek = nextWeekPlans.filter(
-                      plan => !centersInTodayRoute.has(plan.school.name)
-                    )
-
-                    if (availableNextWeek.length === 0) return null
-
-                    return (
-                      <div className="space-y-3 border-t pt-4">
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-medium text-gray-700 flex items-center">
-                            <CalendarIcon className="h-4 w-4 mr-2 text-blue-600" />
-                            Adelantar de semana siguiente ({availableNextWeek.length})
-                          </h4>
-                          {selectedNextWeekCenters.size > 0 && (
-                            <Badge className="bg-blue-600">{selectedNextWeekCenters.size} seleccionados</Badge>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {availableNextWeek.slice(0, 12).map((plan) => {
-                            const isSelected = selectedNextWeekCenters.has(plan.school.name)
-                            const schoolDisplayName = plan.school.name === "Academia" ? plan.school.name : `Escola ${plan.school.name}`
-                            return (
-                              <label
-                                key={plan.school.name}
-                                className={cn(
-                                  "flex items-center gap-2 p-2 rounded-lg cursor-pointer border",
-                                  isSelected ? "bg-blue-50 border-blue-300" : "bg-gray-50 border-gray-200 hover:bg-gray-100"
-                                )}
-                              >
-                                <Checkbox
-                                  checked={isSelected}
-                                  onCheckedChange={() => toggleNextWeekCenter(plan.school.name)}
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <span className="text-sm font-medium truncate block">{schoolDisplayName}</span>
-                                  <span className="text-xs text-gray-500">
-                                    {plan.activities.map(a => a.activity).join(", ")}
-                                  </span>
-                                </div>
-                              </label>
-                            )
-                          })}
-                        </div>
-                        {availableNextWeek.length > 12 && (
-                          <p className="text-sm text-gray-500 text-center">
-                            Y {availableNextWeek.length - 12} centros más...
-                          </p>
+                        {/* Mensaje si no hay centros */}
+                        {assignedPlans.length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            <Package className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                            <p>No hay centros asignados a este día</p>
+                          </div>
                         )}
-                      </div>
-                    )
-                  })()}
-
-                  {/* Mensaje si no hay centros */}
-                  {assignedPlans.length === 0 && availableOtherDays.length === 0 && (
-                    <div className="text-center py-8 text-gray-500">
-                      <CalendarIcon className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p>No hay centros asignados ni disponibles para este día</p>
-                    </div>
-                  )}
-                </TabsContent>
-              )
-            })}
-          </Tabs>
-        </CardContent>
-      </Card>
-
-      {filteredPlans.length === 0 && (
+                      </>
+                    )}
+                  </TabsContent>
+                )
+              })}
+            </Tabs>
+          </CardContent>
+        </Card>
+      ) : (
         <Card className="p-8 text-center">
           <Truck className="h-12 w-12 mx-auto text-gray-400 mb-4" />
           <h3 className="text-lg font-semibold mb-2">No hay entregas programadas</h3>
           <p className="text-gray-600">
-            No se encontraron entregas para la semana seleccionada con los filtros actuales.
+            No se encontraron centros para la semana seleccionada con los filtros actuales.
           </p>
         </Card>
       )}
@@ -2592,7 +2460,7 @@ export default function Home() {
   const [deliveryReorganizations, setDeliveryReorganizations] = useState<{ [key: string]: any }>({})
   
   // Función para abrir el editor de rutas con datos de entregas - Vista completa semanal
-  const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter: number = 0, additionalPlans: DeliveryPlan[] = []) => {
+  const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter: number = 0, additionalPlans: DeliveryPlan[] = [], onReorganizeCb?: (items: any) => void) => {
     // Recibimos todos los planes de la semana para permitir drag & drop entre días
     // También recibimos planes adicionales de la semana siguiente (adelantados)
 
@@ -2639,7 +2507,10 @@ export default function Home() {
       weekStart: weekStart,
       allPlans: allWeekPlans, // Pasar todos los planes para organizar por días
       onApplyChanges: (reorganizedItems: any) => {
-        // Callback para manejar los cambios aplicados
+        // Actualizar la vista de gestión con la reorganización
+        if (onReorganizeCb) {
+          onReorganizeCb(reorganizedItems)
+        }
         const reorganizationKey = `${deliveryType}_${weekStart}`
         setDeliveryReorganizations(prev => ({
           ...prev,
