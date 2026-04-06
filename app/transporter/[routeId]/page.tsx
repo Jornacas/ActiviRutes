@@ -40,7 +40,7 @@ const GOOGLE_SHEETS_CONFIG = {
   SHEET_ID: "1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I",
   DELIVERIES_SHEET_NAME: "Entregas", // Nueva hoja para entregas
   // URL del Google Apps Script Web App - ¡SCRIPT ORIGINAL QUE FUNCIONA!
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbz__Y99LWani6uG87sM30fEKozuZsz6YpD94dgXMtboYYZFW1E6epJRS1sjKBtNyRkN/exec"
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzSYO-BTf33Qp6VP1L4d0AgAziGyqUnTIvE5DY8aaYYGNPnq8chGbQmmu0Iy9RuH9wg/exec"
 }
 
 // Tipo para los datos de entrega que se guardarán localmente y en Sheets
@@ -827,20 +827,54 @@ export default function TransporterApp() {
     }
   }
 
-  // Simular carga de datos de la ruta (en un caso real, vendría de una DB o API)
+  // Cargar ruta: primero API (proyecto), luego localStorage, luego URL
   useEffect(() => {
+    const loadRoute = async () => {
     setLoading(true)
     setError(null)
     try {
       debugLog('📱 === CARGANDO RUTA DEL TRANSPORTISTA ===')
       debugLog('🆔 Route ID:', routeId)
-      
-      // Intentar cargar desde localStorage primero (para mismo dispositivo)
+
+      // 1. Intentar cargar desde proyecto (API) si hay parámetros projectId y dia
+      const urlParams = new URLSearchParams(window.location.search)
+      const projectId = urlParams.get('projectId')
+      const dia = urlParams.get('dia')
+
+      if (projectId && dia) {
+        try {
+          debugLog('🔄 Cargando ruta desde proyecto:', projectId, dia)
+          const response = await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'getProjectRoute', projectId, dia }),
+          })
+          const result = await response.json()
+          if (result.status === 'success' && result.data?.length > 0) {
+            const routeItemsFromProject: RouteItem[] = result.data.map((item: any, index: number) => ({
+              id: item.centro || `project-item-${index}`,
+              name: item.centro.includes('Escola') ? item.centro : `Escola ${item.centro}`,
+              address: item.direccion || '',
+              activities: item.actividades || [],
+              type: 'delivery' as const,
+              startTime: `${9 + Math.floor(index * 0.5)}:${index % 2 === 0 ? '00' : '30'}`,
+              totalStudents: 0,
+              price: 0,
+            }))
+            setRouteItems(routeItemsFromProject)
+            debugLog(`✅ Ruta cargada desde proyecto: ${routeItemsFromProject.length} paradas`)
+            return
+          }
+        } catch (err) {
+          debugLog('⚠️ Error cargando desde proyecto, intentando alternativas:', err)
+        }
+      }
+
+      // 2. Intentar cargar desde localStorage (mismo dispositivo)
       const savedRoute = localStorage.getItem(`savedRoute_${routeId}`)
       if (savedRoute) {
         const route = JSON.parse(savedRoute)
         setRouteItems(route.items)
-        // Cargar también el estado de entrega si existe
         const savedDeliveryStatus = localStorage.getItem(`deliveryStatus_${routeId}`)
         if (savedDeliveryStatus) {
           setDeliveryStatus(JSON.parse(savedDeliveryStatus))
@@ -848,9 +882,8 @@ export default function TransporterApp() {
         debugLog("✅ Ruta cargada desde localStorage:", routeId)
         return
       }
-      
-      // Si no está en localStorage, intentar cargar desde URL parameters (para compartir entre dispositivos)
-      const urlParams = new URLSearchParams(window.location.search)
+
+      // 3. Intentar cargar desde URL parameters (datos codificados en base64)
       const encodedData = urlParams.get('data')
       
       if (encodedData) {
@@ -915,6 +948,8 @@ export default function TransporterApp() {
     } finally {
       setLoading(false)
     }
+    }
+    loadRoute()
   }, [routeId])
 
   // Sincronizar estado con base de datos cuando se cargan los items

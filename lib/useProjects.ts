@@ -10,6 +10,7 @@ export interface Project {
   actividades: string[]
   estado: 'activo' | 'completado' | 'eliminado'
   fechaCreacion: string
+  festivos: string[]
 }
 
 export interface ProjectDelivery {
@@ -22,6 +23,7 @@ export interface ProjectDelivery {
   estado: 'pendiente' | 'entregado' | 'adelantado'
   actividades: string[]
   notas: string
+  orden: number
 }
 
 export interface CreateProjectData {
@@ -30,15 +32,26 @@ export interface CreateProjectData {
   fechaInicio: string
   fechaFin: string
   actividades: string[]
+  festivos?: string[]
 }
 
 export interface DeliveryToSave {
   centro: string
   direccion: string
-  fechaPlanificada: string
+  fechaPlanificada?: string
   diaPlanificado: string
   actividades: string[]
   estado?: 'pendiente'
+  orden?: number
+}
+
+export interface ProjectRouteItem {
+  centro: string
+  direccion: string
+  diaPlanificado: string
+  actividades: string[]
+  orden: number
+  estado: string
 }
 
 // Hook para gestionar proyectos
@@ -271,6 +284,56 @@ export function useProjects() {
     }
   }, [])
 
+  // Actualizar proyecto (festivos, actividades, etc.)
+  const updateProject = useCallback(async (
+    projectId: string,
+    updates: Partial<Pick<Project, 'festivos' | 'actividades' | 'modo' | 'fechaInicio' | 'fechaFin'>>
+  ): Promise<boolean> => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'updateProject', projectId, updates })
+      })
+      const result = await response.json()
+      if (result.status === 'success') return true
+      throw new Error(result.message)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error desconocido'
+      setError(message)
+      return false
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Obtener ruta de un proyecto por día (para transportista)
+  const getProjectRoute = useCallback(async (
+    projectId: string,
+    dia: string
+  ): Promise<ProjectRouteItem[]> => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getProjectRoute', projectId, dia })
+      })
+      const result = await response.json()
+      if (result.status === 'success') return result.data || []
+      throw new Error(result.message)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error desconocido'
+      setError(message)
+      return []
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   return {
     loading,
     error,
@@ -281,6 +344,8 @@ export function useProjects() {
     getProjectDeliveries,
     saveProjectDeliveries,
     updateDeliveryStatus,
-    updateMultipleDeliveries
+    updateMultipleDeliveries,
+    updateProject,
+    getProjectRoute
   }
 }

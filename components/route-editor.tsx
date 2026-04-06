@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { InteractiveMap, RouteItem as ImportedRouteItem } from "./interactive-map"
+import { RouteMapPanel } from "./route-map-panel"
 import {
   MapPin,
   Clock,
@@ -43,10 +44,11 @@ interface RouteConfig {
   items: RouteItem[]
   type: "delivery" | "pickup"
   selectedDay?: string
-  allPlans?: any[] // Para almacenar todos los planes organizados por días
+  allPlans?: any[]
   onApplyChanges?: (reorganizedItems: { [day: string]: RouteItem[] }) => void
   deliveryType?: string
   weekStart?: string
+  projectId?: string
 }
 
 interface RoutePreferences {
@@ -665,46 +667,36 @@ export default function RouteEditor({
   }
 
   const saveCurrentRoute = async () => {
-    if (!routeName.trim()) {
-      alert("Por favor, introduce un nombre para la ruta")
-      return
-    }
-
     setIsSaving(true)
     try {
-      const routeId = `${config.type}_${Date.now()}`
-      
-      // Usar los items reorganizados si estamos en modo de reorganización
-      const itemsToSave = viewMode === "week" && Object.keys(weeklyPlansByDay).length > 0 
-        ? Object.entries(weeklyPlansByDay).flatMap(([day, items]) => 
-            items.map((item, index) => ({ ...item, day, originalIndex: index }))
-          )
-        : currentItems
-      
-      const savedRoute: SavedRoute = {
-        id: routeId,
-        name: routeName.trim(),
-        day: config.selectedDay || "general",
-        type: config.type,
-        items: itemsToSave,
-        preferences: routePreferences,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
+      // Guardar al proyecto en Sheets + localStorage
+      await saveToProject()
 
-      const success = await saveRouteToSheet(savedRoute)
-      if (success) {
+      // También guardar como ruta con nombre si se proporcionó
+      if (routeName.trim()) {
+        const routeId = `${config.type}_${Date.now()}`
+        const itemsToSave = Object.entries(weeklyPlansByDay).flatMap(([day, items]) =>
+          items.map((item, index) => ({ ...item, day, originalIndex: index }))
+        )
+        const savedRoute: SavedRoute = {
+          id: routeId,
+          name: routeName.trim(),
+          day: config.selectedDay || "general",
+          type: config.type,
+          items: itemsToSave,
+          preferences: routePreferences,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+        await saveRouteToSheet(savedRoute)
         await loadSavedRoutes()
         setRouteName("")
-        persistWeeklyLayout();
-        alert(`✅ Ruta "${savedRoute.name}" guardada y establecida como la disposición actual de la semana.\n📋 ${itemsToSave.length} centros incluidos.`) 
-        setIsDirty(false)
-      } else {
-        alert("❌ Error guardando la ruta")
       }
+
+      setIsDirty(false)
     } catch (error) {
       console.error("Error guardando ruta:", error)
-      alert("❌ Error guardando la ruta")
+      alert("Error guardando la ruta")
     } finally {
       setIsSaving(false)
     }
@@ -868,101 +860,84 @@ export default function RouteEditor({
     })
   }
 
-  const applyChanges = () => {
-    // Convertir los cambios de planificación semanal de vuelta a la estructura original
-    const updatedItems: RouteItem[] = []
-    
-    Object.entries(weeklyPlansByDay).forEach(([day, items]) => {
-      items.forEach((item, index) => {
-        updatedItems.push({
-          ...item,
-          day: day,
-          originalIndex: index // Mantener el orden dentro del día
+  // Guardar rutas al proyecto (Sheets) o localStorage como fallback
+  const saveToProject = async () => {
+    setIsSaving(true)
+    try {
+      // Preparar entregas con orden
+      const deliveries = Object.entries(weeklyPlansByDay).flatMap(([day, items]) =>
+        items.map((item, index) => ({
+          centro: item.name,
+          direccion: item.address,
+          diaPlanificado: day,
+          actividades: item.activities || [],
+          orden: index + 1,
+        }))
+      )
+
+      if (config.projectId) {
+        // Guardar en Google Sheets via API
+        const response = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'saveProjectDeliveries',
+            projectId: config.projectId,
+            deliveries,
+          }),
         })
-      })
-    })
-    
-    // Guardar la reorganización en localStorage
+        const result = await response.json()
+        if (result.status !== 'success') {
+          throw new Error(result.message || 'Error guardando')
+        }
+      }
+
+      // Siempre guardar también en localStorage como cache local
+      persistWeeklyLayout()
+
+      // Notificar al componente padre
+      if (config.onApplyChanges) {
+        config.onApplyChanges(weeklyPlansByDay)
+      }
+
+      const totalItems = deliveries.length
+      alert(`Ruta guardada: ${totalItems} centros${config.projectId ? ' (sincronizado con Google Sheets)' : ''}`)
+      setIsDirty(false)
+    } catch (error) {
+      console.error('Error guardando ruta:', error)
+      // Fallback: al menos guardar en localStorage
+      persistWeeklyLayout()
+      alert('Ruta guardada localmente (error al sincronizar con Sheets)')
+      setIsDirty(false)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const persistWeeklyLayout = () => {
     const reorganizationId = `reorganization_${config.deliveryType || 'default'}_${config.weekStart || new Date().toISOString().split('T')[0]}`
     const reorganizationData: RouteReorganization = {
       id: reorganizationId,
       timestamp: new Date().toISOString(),
       deliveryType: config.deliveryType || 'default',
       weekStart: config.weekStart || new Date().toISOString().split('T')[0],
-      reorganizedItems: weeklyPlansByDay
+      reorganizedItems: weeklyPlansByDay,
     }
-    
+
     try {
       localStorage.setItem(reorganizationId, JSON.stringify(reorganizationData))
-      
-      // También mantener un índice de todas las reorganizaciones
       const allReorganizations = JSON.parse(localStorage.getItem('allRouteReorganizations') || '[]')
       const existingIndex = allReorganizations.findIndex((item: any) => item.id === reorganizationId)
-      
       if (existingIndex >= 0) {
         allReorganizations[existingIndex] = { id: reorganizationId, timestamp: reorganizationData.timestamp }
       } else {
         allReorganizations.push({ id: reorganizationId, timestamp: reorganizationData.timestamp })
       }
-      
       localStorage.setItem('allRouteReorganizations', JSON.stringify(allReorganizations))
-      
-      console.log('🔄 Reorganización guardada:', reorganizationId)
-      
-      // Notificar al componente padre si existe el callback
-      if (config.onApplyChanges) {
-        config.onApplyChanges(weeklyPlansByDay)
-      }
-      
-      alert(`✅ Cambios aplicados y guardados: ${updatedItems.length} centros reorganizados
-🔄 Los cambios se mantendrán entre sesiones
-💡 Usa "Guardar Ruta" para crear una copia permanente con nombre`)
-      setIsDirty(false)
-      
     } catch (error) {
       console.error('Error guardando reorganización:', error)
-      alert('⚠️ Los cambios se aplicaron pero no se pudieron guardar permanentemente')
     }
-    
-    setViewMode("day")
   }
-
-  const saveWeeklyLayout = () => {
-    persistWeeklyLayout();
-    const totalItems = Object.values(weeklyPlansByDay).flat().length;
-    alert(`✅ Disposición de la semana guardada: ${totalItems} centros reorganizados.\n🔄 La próxima vez que abras el editor para esta semana, verás estos cambios.`);
-    setIsDirty(false);
-    setViewMode("day");
-  }
-
-  const persistWeeklyLayout = () => {
-    const reorganizationId = `reorganization_${config.deliveryType || 'default'}_${config.weekStart || new Date().toISOString().split('T')[0]}`;
-    const reorganizationData: RouteReorganization = {
-      id: reorganizationId,
-      timestamp: new Date().toISOString(),
-      deliveryType: config.deliveryType || 'default',
-      weekStart: config.weekStart || new Date().toISOString().split('T')[0],
-      reorganizedItems: weeklyPlansByDay
-    };
-    
-    try {
-      localStorage.setItem(reorganizationId, JSON.stringify(reorganizationData));
-      const allReorganizations = JSON.parse(localStorage.getItem('allRouteReorganizations') || '[]');
-      const existingIndex = allReorganizations.findIndex((item: any) => item.id === reorganizationId);
-      if (existingIndex >= 0) {
-        allReorganizations[existingIndex] = { id: reorganizationId, timestamp: reorganizationData.timestamp };
-      } else {
-        allReorganizations.push({ id: reorganizationId, timestamp: reorganizationData.timestamp });
-      }
-      localStorage.setItem('allRouteReorganizations', JSON.stringify(allReorganizations));
-      console.log('🔄 Reorganización guardada en background:', reorganizationId);
-      if (config.onApplyChanges) {
-        config.onApplyChanges(weeklyPlansByDay);
-      }
-    } catch (error) {
-      console.error('Error guardando reorganización en background:', error);
-    }
-  };
 
   const [transporterLink, setTransporterLink] = useState<string | null>(null);
   const [showTransporterModal, setShowTransporterModal] = useState(false);
@@ -1047,10 +1022,16 @@ export default function RouteEditor({
     // Codificar versión completa
     const fullEncoded = btoa(JSON.stringify(fullSummary));
     
-    // Link base
+    // Link base — incluir projectId y dia si están disponibles
     const hostname = window.location.hostname;
     const baseUrl = `${window.location.origin}/transporter/${currentRouteId}`;
-    const fullLink = `${baseUrl}?data=${fullEncoded}`;
+    const dayMapping: { [k: string]: string } = {
+      'lunes': 'Dilluns', 'martes': 'Dimarts', 'miércoles': 'Dimecres',
+      'jueves': 'Dijous', 'viernes': 'Divendres'
+    }
+    const catalanDay = dayMapping[selectedDayInDayView?.toLowerCase()] || selectedDayInDayView
+    const projectParams = config.projectId ? `&projectId=${config.projectId}&dia=${encodeURIComponent(catalanDay)}` : ''
+    const fullLink = `${baseUrl}?data=${fullEncoded}${projectParams}`;
     
     console.log('🌐 Hostname:', hostname)
     console.log('🔗 Link completo generado:', fullLink)
@@ -1235,15 +1216,7 @@ export default function RouteEditor({
               </div>
 
               <div className="flex gap-2">
-                <Button onClick={optimizeRoute} disabled={isOptimizing} className="">
-                  {isOptimizing ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Route className="h-4 w-4 mr-2" />
-                  )}
-                  Optimizar con Google Maps
-                </Button>
-                <Button 
+                <Button
                   onClick={generateTransporterLink}
                   variant="outline"
                   className="bg-purple-600 hover:bg-purple-700 text-white"
@@ -1251,6 +1224,14 @@ export default function RouteEditor({
                 >
                   <Truck className="h-4 w-4 mr-2" />
                   Link Transportista
+                </Button>
+                <Button
+                  onClick={saveCurrentRoute}
+                  disabled={isSaving}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  Guardar ruta{config.projectId ? '' : ' (local)'}
                 </Button>
               </div>
             </CardContent>
@@ -1379,93 +1360,151 @@ export default function RouteEditor({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="map" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="map" className="flex items-center gap-2">
-                      <Map className="h-4 w-4" />
-                      Mapa Interactivo
-                    </TabsTrigger>
-                    <TabsTrigger value="list" className="flex items-center gap-2">
-                      <List className="h-4 w-4" />
-                      Lista de Rutas
-                    </TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="map" className="mt-4">
-                    <div className="h-[600px] w-full">
-                      <InteractiveMap 
-                        items={currentItems}
-                        onItemClick={(item) => {
-                          console.log('Clicked on:', item.name)
-                        }}
-                      />
+                <div className="flex gap-4 h-[600px]">
+                  {/* Left: scrollable stop list with drag & drop */}
+                  <div className="w-1/2 overflow-y-auto space-y-2 pr-2">
+                    <div className="flex items-center p-3 bg-green-50 rounded-lg border border-green-200">
+                      <div className="bg-green-600 text-white rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm font-bold">
+                        A
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-green-800">INICIO</div>
+                        <div className="text-sm text-green-600">{routePreferences.startLocation}</div>
+                        <div className="text-xs text-green-500">{routePreferences.preferredStartTime}</div>
+                      </div>
                     </div>
-                  </TabsContent>
-                  
-                  <TabsContent value="list" className="mt-4">
-                    <div className="space-y-2">
-                  <div className="flex items-center p-3 bg-green-50 rounded-lg border border-green-200">
-                    <div className="bg-green-600 text-white rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm font-bold">
-                      🏁
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-green-800">INICIO</div>
-                      <div className="text-sm text-green-600">{routePreferences.startLocation}</div>
-                      <div className="text-xs text-green-500">{routePreferences.preferredStartTime}</div>
+
+                    {currentItems.map((item, index) => {
+                      const schoolDisplayName = item.name === "Academia" ? item.name : `Escola ${item.name}`
+                      const isDragging = draggedItem?.id === item.id
+
+                      return (
+                        <div
+                          key={`day-${item.id}-${index}`}
+                        >
+                          {/* Drop zone before item */}
+                          <div
+                            className={`h-1 rounded transition-all ${
+                              dropIndicator?.day === selectedDayInDayView && dropIndicator?.index === index
+                                ? 'bg-blue-400 h-2'
+                                : ''
+                            }`}
+                            onDragOver={(e) => {
+                              e.preventDefault()
+                              setDropIndicator({ day: selectedDayInDayView, index })
+                            }}
+                            onDragLeave={() => setDropIndicator(null)}
+                            onDrop={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              if (!draggedItem) return
+                              // Reorder within the day
+                              const dayMapping: { [k: string]: string } = {
+                                'lunes': 'Dilluns', 'martes': 'Dimarts', 'miércoles': 'Dimecres',
+                                'jueves': 'Dijous', 'viernes': 'Divendres'
+                              }
+                              const catalanDay = dayMapping[selectedDayInDayView.toLowerCase()] || selectedDayInDayView
+                              handleDropBetweenItems(catalanDay, index, e)
+                            }}
+                          />
+                          <div
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.effectAllowed = 'move'
+                              handleDragStart(item)
+                            }}
+                            onDragEnd={handleDragEnd}
+                            className={`flex items-center p-3 bg-white rounded-lg border transition-all ${
+                              isDragging
+                                ? 'opacity-30 scale-95 border-blue-300'
+                                : 'hover:shadow-sm cursor-move hover:border-blue-200'
+                            }`}
+                          >
+                            <div className="bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center mr-3 text-sm font-bold flex-shrink-0">
+                              {index + 1}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-gray-900 truncate text-sm">{schoolDisplayName}</div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                                <span className="flex items-center">
+                                  <MapPin className="h-3 w-3 mr-1" />
+                                  {item.address}
+                                </span>
+                                {item.startTime && (
+                                  <span className="flex items-center bg-green-50 text-green-700 px-2 py-0.5 rounded">
+                                    <Clock className="h-3 w-3 mr-1" />
+                                    {item.startTime}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="text-right text-xs text-gray-500 flex-shrink-0">
+                              <div className="text-blue-600 font-medium">{item.activities?.join(', ')}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {/* Drop zone at end */}
+                    <div
+                      className={`h-2 rounded transition-all ${
+                        dropIndicator?.day === selectedDayInDayView && dropIndicator?.index === currentItems.length
+                          ? 'bg-blue-400 h-3'
+                          : ''
+                      }`}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        setDropIndicator({ day: selectedDayInDayView, index: currentItems.length })
+                      }}
+                      onDragLeave={() => setDropIndicator(null)}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        if (!draggedItem) return
+                        const dayMapping: { [k: string]: string } = {
+                          'lunes': 'Dilluns', 'martes': 'Dimarts', 'miércoles': 'Dimecres',
+                          'jueves': 'Dijous', 'viernes': 'Divendres'
+                        }
+                        const catalanDay = dayMapping[selectedDayInDayView.toLowerCase()] || selectedDayInDayView
+                        handleDropBetweenItems(catalanDay, currentItems.length, e)
+                      }}
+                    />
+
+                    <div className="flex items-center p-3 bg-red-50 rounded-lg border border-red-200">
+                      <div className="bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm font-bold">
+                        B
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-red-800">FINAL</div>
+                        <div className="text-sm text-red-600">{routePreferences.endLocation}</div>
+                      </div>
                     </div>
                   </div>
 
-                  {currentItems.map((item, index) => {
-                    const schoolDisplayName = item.name === "Academia" ? item.name : `Escola ${item.name}`
-                    const estimatedTime = new Date(
-                      new Date().getTime() + (index + 1) * (routePreferences.timePerStop + 5) * 60000,
-                    ).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
-
-                    return (
-                      <div
-                        key={`${item.id}-${index}`}
-                        className="flex items-center p-3 bg-white rounded-lg border hover:shadow-sm transition-shadow"
-                      >
-                        <div className="bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center mr-3 text-sm font-bold flex-shrink-0">
-                          {index + 1}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-gray-900 truncate text-sm">{schoolDisplayName}</div>
-                          <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-                            <span className="flex items-center">
-                              <MapPin className="h-3 w-3 mr-1" />
-                              {item.address}
-                            </span>
-                            {item.startTime && (
-                              <span className="flex items-center bg-green-50 text-green-700 px-2 py-0.5 rounded">
-                                <Clock className="h-3 w-3 mr-1" />
-                                {item.startTime}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="text-right text-xs text-gray-500 flex-shrink-0">
-                          <div className="font-medium">{estimatedTime}</div>
-                          <div>~{routePreferences.timePerStop}min</div>
-                        </div>
-                      </div>
-                    )
-                  })}
-
-                      <div className="flex items-center p-3 bg-red-50 rounded-lg border border-red-200">
-                        <div className="bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm font-bold">
-                          🏁
-                        </div>
-                        <div className="flex-1">
-                          <div className="font-medium text-red-800">FINAL</div>
-                          <div className="text-sm text-red-600">{routePreferences.endLocation}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                  {/* Right: Map with route */}
+                  <div className="w-1/2">
+                    <RouteMapPanel
+                      items={currentItems}
+                      startLocation={routePreferences.startLocation}
+                      endLocation={routePreferences.endLocation}
+                      onOptimizedOrder={(reorderedItems) => {
+                        // Apply optimized order to the current day
+                        const dayMapping: { [k: string]: string } = {
+                          'lunes': 'Dilluns', 'martes': 'Dimarts', 'miércoles': 'Dimecres',
+                          'jueves': 'Dijous', 'viernes': 'Divendres'
+                        }
+                        const catalanDay = dayMapping[selectedDayInDayView.toLowerCase()] || selectedDayInDayView
+                        setWeeklyPlansByDay(prev => ({
+                          ...prev,
+                          [catalanDay]: reorderedItems.map(item => ({ ...item, day: catalanDay } as RouteItem))
+                        }))
+                        setIsDirty(true)
+                      }}
+                    />
+                  </div>
+                </div>
               </CardContent>
             </Card>
           ) : (
@@ -1481,18 +1520,16 @@ export default function RouteEditor({
                   </span>
                   <div className="flex gap-2">
                     <Button
-                      onClick={saveWeeklyLayout}
+                      onClick={saveCurrentRoute}
+                      disabled={isSaving}
                       className="bg-blue-600 hover:bg-blue-700"
                       size="sm"
                     >
-                      <Save className="h-4 w-4 mr-2 text-white" />
-                      Guardar Disposición Semanal
+                      {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin text-white" /> : <Save className="h-4 w-4 mr-2 text-white" />}
+                      Guardar{config.projectId ? '' : ' (local)'}
                     </Button>
                     <Button
                       onClick={() => {
-                        const reorganizationId = `reorganization_${config.deliveryType || 'default'}_${config.weekStart || new Date().toISOString().split('T')[0]}`
-                        localStorage.removeItem(reorganizationId)
-                        // Recargar configuración original
                         const groupedByDay = config.items.reduce((acc, item) => {
                           const day = item.day || "Sin asignar"
                           if (!acc[day]) acc[day] = []
@@ -1500,7 +1537,7 @@ export default function RouteEditor({
                           return acc
                         }, {} as {[key: string]: RouteItem[]})
                         setWeeklyPlansByDay(groupedByDay)
-                        alert('🔄 Reorganización restablecida al estado original')
+                        setIsDirty(true)
                       }}
                       variant="outline"
                       size="sm"
@@ -1508,32 +1545,6 @@ export default function RouteEditor({
                     >
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Restablecer
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        // Cargar última reorganización guardada
-                        const reorganizationId = `reorganization_${config.deliveryType || 'default'}_${config.weekStart || new Date().toISOString().split('T')[0]}`
-                        const savedReorganization = localStorage.getItem(reorganizationId)
-                        
-                        if (savedReorganization) {
-                          try {
-                            const reorganizationData: RouteReorganization = JSON.parse(savedReorganization)
-                            setWeeklyPlansByDay(reorganizationData.reorganizedItems)
-                            alert('🔄 Última reorganización cargada exitosamente')
-                          } catch (error) {
-                            console.error('Error cargando reorganización:', error)
-                            alert('❌ No se pudo cargar la última reorganización')
-                          }
-                        } else {
-                          alert('ℹ️ No hay reorganización guardada para esta configuración')
-                        }
-                      }}
-                      variant="outline"
-                      size="sm"
-                      className="bg-green-50 hover:bg-green-100 border-green-200"
-                    >
-                      <FolderOpen className="h-4 w-4 mr-2" />
-                      Recuperar
                     </Button>
                     <Button
                       onClick={() => {

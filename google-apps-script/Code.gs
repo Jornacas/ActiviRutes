@@ -235,6 +235,14 @@ function doPost(e) {
       );
     }
 
+    if (data.action === 'updateProject') {
+      return updateProject(data.projectId, data.updates);
+    }
+
+    if (data.action === 'getProjectRoute') {
+      return getProjectRoute(data.projectId, data.dia);
+    }
+
     logToSheet('❌ Acción no válida', data.action);
     return createJSONResponse({
       status: 'error',
@@ -441,25 +449,37 @@ const SHEET_ID = '1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I';
 function initProjectSheets() {
   const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
 
-  // Hoja de Proyectos
+  // Hoja de Proyectos (9 columnas)
   let projectsSheet = spreadsheet.getSheetByName('Proyectos');
   if (!projectsSheet) {
     projectsSheet = spreadsheet.insertSheet('Proyectos');
-    projectsSheet.getRange(1, 1, 1, 8).setValues([[
-      'ID', 'Tipo', 'Modo', 'FechaInicio', 'FechaFin', 'Actividades', 'Estado', 'FechaCreacion'
+    projectsSheet.getRange(1, 1, 1, 9).setValues([[
+      'ID', 'Tipo', 'Modo', 'FechaInicio', 'FechaFin', 'Actividades', 'Estado', 'FechaCreacion', 'Festivos'
     ]]);
-    logToSheet('✅ Hoja Proyectos creada');
+    logToSheet('✅ Hoja Proyectos creada (v2)');
+  } else {
+    // Migrar: añadir columna Festivos si no existe
+    var headers = projectsSheet.getRange(1, 1, 1, 9).getValues()[0];
+    if (!headers[8] || headers[8] !== 'Festivos') {
+      projectsSheet.getRange(1, 9).setValue('Festivos');
+    }
   }
 
-  // Hoja de Entregas del Proyecto
+  // Hoja de Entregas del Proyecto (10 columnas)
   let deliveriesSheet = spreadsheet.getSheetByName('ProyectoEntregas');
   if (!deliveriesSheet) {
     deliveriesSheet = spreadsheet.insertSheet('ProyectoEntregas');
-    deliveriesSheet.getRange(1, 1, 1, 9).setValues([[
+    deliveriesSheet.getRange(1, 1, 1, 10).setValues([[
       'ProyectoID', 'Centro', 'Direccion', 'FechaPlanificada', 'DiaPlanificado',
-      'FechaEntrega', 'Estado', 'Actividades', 'Notas'
+      'FechaEntrega', 'Estado', 'Actividades', 'Notas', 'Orden'
     ]]);
-    logToSheet('✅ Hoja ProyectoEntregas creada');
+    logToSheet('✅ Hoja ProyectoEntregas creada (v2)');
+  } else {
+    // Migrar: añadir columna Orden si no existe
+    var dHeaders = deliveriesSheet.getRange(1, 1, 1, 10).getValues()[0];
+    if (!dHeaders[9] || dHeaders[9] !== 'Orden') {
+      deliveriesSheet.getRange(1, 10).setValue('Orden');
+    }
   }
 
   return { projectsSheet, deliveriesSheet };
@@ -475,6 +495,8 @@ function createProject(projectData) {
     // Generar ID único
     const projectId = 'P' + Date.now();
 
+    const festivos = Array.isArray(projectData.festivos) ? JSON.stringify(projectData.festivos) : '[]';
+
     const row = [
       projectId,
       projectData.tipo,           // 'entrega' o 'recogida'
@@ -483,7 +505,8 @@ function createProject(projectData) {
       projectData.fechaFin,       // YYYY-MM-DD
       projectData.actividades.join(','),  // 'TC,CO,DX,JC'
       'activo',
-      new Date().toISOString()
+      new Date().toISOString(),
+      festivos                    // JSON array de fechas festivas
     ];
 
     projectsSheet.appendRow(row);
@@ -521,7 +544,7 @@ function getProjects(tipo = null) {
       });
     }
 
-    const data = projectsSheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    const data = projectsSheet.getRange(2, 1, lastRow - 1, 9).getValues();
 
     let projects = data.map(row => ({
       id: row[0],
@@ -531,7 +554,8 @@ function getProjects(tipo = null) {
       fechaFin: row[4],
       actividades: row[5] ? row[5].split(',') : [],
       estado: row[6],
-      fechaCreacion: row[7]
+      fechaCreacion: row[7],
+      festivos: (() => { try { return JSON.parse(row[8] || '[]'); } catch(e) { return []; } })()
     }));
 
     // Filtrar por tipo si se especifica
@@ -572,7 +596,7 @@ function getProject(projectId) {
       });
     }
 
-    const data = projectsSheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    const data = projectsSheet.getRange(2, 1, lastRow - 1, 9).getValues();
     const row = data.find(r => r[0] === projectId);
 
     if (!row) {
@@ -592,7 +616,8 @@ function getProject(projectId) {
         fechaFin: row[4],
         actividades: row[5] ? row[5].split(',') : [],
         estado: row[6],
-        fechaCreacion: row[7]
+        fechaCreacion: row[7],
+        festivos: (() => { try { return JSON.parse(row[8] || '[]'); } catch(e) { return []; } })()
       }
     });
 
@@ -611,17 +636,30 @@ function saveProjectDeliveries(projectId, deliveries) {
 
     const { deliveriesSheet } = initProjectSheets();
 
-    // Preparar filas para insertar
-    const rows = deliveries.map(d => [
+    // Primero, eliminar entregas existentes de este proyecto para evitar duplicados
+    const lastRowBefore = deliveriesSheet.getLastRow();
+    if (lastRowBefore > 1) {
+      const existingData = deliveriesSheet.getRange(2, 1, lastRowBefore - 1, 1).getValues();
+      // Eliminar filas del proyecto de abajo hacia arriba
+      for (var i = existingData.length - 1; i >= 0; i--) {
+        if (existingData[i][0] === projectId) {
+          deliveriesSheet.deleteRow(i + 2);
+        }
+      }
+    }
+
+    // Preparar filas para insertar (10 columnas)
+    const rows = deliveries.map((d, index) => [
       projectId,
       d.centro,
       d.direccion || '',
-      d.fechaPlanificada,      // YYYY-MM-DD
-      d.diaPlanificado,        // 'lunes', 'martes', etc.
-      d.fechaEntrega || '',    // vacío si pendiente
-      d.estado || 'pendiente', // 'pendiente', 'entregado', 'adelantado'
+      d.fechaPlanificada || '',  // YYYY-MM-DD
+      d.diaPlanificado,          // 'Dilluns', 'Dimarts', etc.
+      d.fechaEntrega || '',      // vacío si pendiente
+      d.estado || 'pendiente',   // 'pendiente', 'entregado', 'adelantado'
       Array.isArray(d.actividades) ? d.actividades.join(',') : d.actividades,
-      d.notas || ''
+      d.notas || '',
+      d.orden != null ? d.orden : index + 1  // Orden dentro del día
     ]);
 
     // Insertar todas las filas
@@ -630,7 +668,7 @@ function saveProjectDeliveries(projectId, deliveries) {
         deliveriesSheet.getLastRow() + 1,
         1,
         rows.length,
-        9
+        10
       ).setValues(rows);
     }
 
@@ -667,13 +705,12 @@ function getProjectDeliveries(projectId) {
       });
     }
 
-    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 9).getValues();
+    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 10).getValues();
 
-    // Filtrar por proyecto
+    // Filtrar por proyecto y mapear
     const deliveries = data
       .filter(row => row[0] === projectId)
-      .map((row, index) => ({
-        rowIndex: index + 2, // Para poder actualizar después
+      .map(row => ({
         proyectoId: row[0],
         centro: row[1],
         direccion: row[2],
@@ -681,23 +718,17 @@ function getProjectDeliveries(projectId) {
         diaPlanificado: row[4],
         fechaEntrega: row[5],
         estado: row[6],
-        actividades: row[7] ? row[7].split(',') : [],
-        notas: row[8]
-      }));
-
-    // Buscar el índice real en la hoja (no el filtrado)
-    const allData = deliveriesSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    deliveries.forEach(d => {
-      for (let i = 0; i < allData.length; i++) {
-        if (allData[i][0] === projectId) {
-          const rowData = deliveriesSheet.getRange(i + 2, 1, 1, 9).getValues()[0];
-          if (rowData[1] === d.centro && rowData[3] === d.fechaPlanificada) {
-            d.rowIndex = i + 2;
-            break;
-          }
-        }
-      }
-    });
+        actividades: row[7] ? String(row[7]).split(',') : [],
+        notas: row[8],
+        orden: row[9] || 0
+      }))
+      // Ordenar por día y luego por orden dentro del día
+      .sort((a, b) => {
+        var dayOrder = { 'Dilluns': 1, 'Dimarts': 2, 'Dimecres': 3, 'Dijous': 4, 'Divendres': 5 };
+        var dayDiff = (dayOrder[a.diaPlanificado] || 99) - (dayOrder[b.diaPlanificado] || 99);
+        if (dayDiff !== 0) return dayDiff;
+        return (a.orden || 0) - (b.orden || 0);
+      });
 
     logToSheet('✅ Entregas obtenidas', { count: deliveries.length });
 
@@ -863,6 +894,91 @@ function deleteProject(projectId) {
       status: 'error',
       message: 'Error: ' + error.toString()
     });
+  }
+}
+
+// Actualizar proyecto (festivos, actividades, etc.)
+function updateProject(projectId, updates) {
+  try {
+    logToSheet('🔄 Actualizando proyecto', { projectId, updates: Object.keys(updates) });
+
+    const { projectsSheet } = initProjectSheets();
+    const lastRow = projectsSheet.getLastRow();
+    if (lastRow <= 1) {
+      return createJSONResponse({ status: 'error', message: 'Proyecto no encontrado' });
+    }
+
+    const data = projectsSheet.getRange(2, 1, lastRow - 1, 9).getValues();
+    var rowIndex = -1;
+    for (var i = 0; i < data.length; i++) {
+      if (data[i][0] === projectId) { rowIndex = i + 2; break; }
+    }
+
+    if (rowIndex === -1) {
+      return createJSONResponse({ status: 'error', message: 'Proyecto no encontrado' });
+    }
+
+    // Actualizar campos que vengan en updates
+    if (updates.festivos !== undefined) {
+      var festivosStr = Array.isArray(updates.festivos) ? JSON.stringify(updates.festivos) : updates.festivos;
+      projectsSheet.getRange(rowIndex, 9).setValue(festivosStr);
+    }
+    if (updates.actividades !== undefined) {
+      var actStr = Array.isArray(updates.actividades) ? updates.actividades.join(',') : updates.actividades;
+      projectsSheet.getRange(rowIndex, 6).setValue(actStr);
+    }
+    if (updates.modo !== undefined) {
+      projectsSheet.getRange(rowIndex, 3).setValue(updates.modo);
+    }
+    if (updates.fechaInicio !== undefined) {
+      projectsSheet.getRange(rowIndex, 4).setValue(updates.fechaInicio);
+    }
+    if (updates.fechaFin !== undefined) {
+      projectsSheet.getRange(rowIndex, 5).setValue(updates.fechaFin);
+    }
+
+    logToSheet('✅ Proyecto actualizado', { projectId, rowIndex });
+    return createJSONResponse({ status: 'success', message: 'Proyecto actualizado' });
+
+  } catch (error) {
+    logToSheet('❌ Error actualizando proyecto', error.toString());
+    return createJSONResponse({ status: 'error', message: 'Error: ' + error.toString() });
+  }
+}
+
+// Obtener ruta de un proyecto por día (para transportista)
+function getProjectRoute(projectId, dia) {
+  try {
+    logToSheet('🚚 Obteniendo ruta', { projectId, dia });
+
+    const { deliveriesSheet } = initProjectSheets();
+    const lastRow = deliveriesSheet.getLastRow();
+    if (lastRow <= 1) {
+      return createJSONResponse({ status: 'success', data: [], message: 'Sin entregas' });
+    }
+
+    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 10).getValues();
+
+    var items = data
+      .filter(function(row) { return row[0] === projectId && row[4] === dia; })
+      .map(function(row) {
+        return {
+          centro: row[1],
+          direccion: row[2],
+          diaPlanificado: row[4],
+          estado: row[6],
+          actividades: row[7] ? String(row[7]).split(',') : [],
+          orden: row[9] || 0
+        };
+      })
+      .sort(function(a, b) { return (a.orden || 0) - (b.orden || 0); });
+
+    logToSheet('✅ Ruta obtenida', { projectId, dia, count: items.length });
+    return createJSONResponse({ status: 'success', data: items });
+
+  } catch (error) {
+    logToSheet('❌ Error obteniendo ruta', error.toString());
+    return createJSONResponse({ status: 'error', message: 'Error: ' + error.toString() });
   }
 }
 

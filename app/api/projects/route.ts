@@ -111,6 +111,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result)
     }
 
+    if (action === 'updateProject') {
+      const result = await callGAS('updateProject', {
+        projectId: body.projectId,
+        updates: body.updates
+      })
+      return NextResponse.json(result)
+    }
+
+    if (action === 'getProjectRoute') {
+      const result = await callGAS('getProjectRoute', {
+        projectId: body.projectId,
+        dia: body.dia
+      })
+      return NextResponse.json(result)
+    }
+
     return NextResponse.json({ status: 'error', message: 'Acción no válida' }, { status: 400 })
 
   } catch (error) {

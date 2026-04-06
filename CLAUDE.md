@@ -75,7 +75,7 @@ npm run lint         # Run ESLint
 ### Configuration
 - **Sheet ID**: `1C_zHy4xiRXZbVerVnCzRB819hpRKd9b7MiSrHgk2h0I`
 - **Sheet Name**: "Dades" (main data), "Entregas" (delivery tracking)
-- **Google Apps Script URL**: `https://script.google.com/macros/s/AKfycbz__Y99LWani6uG87sM30fEKozuZsz6YpD94dgXMtboYYZFW1E6epJRS1sjKBtNyRkN/exec`
+- **Google Apps Script URL**: `https://script.google.com/macros/s/AKfycbzSYO-BTf33Qp6VP1L4d0AgAziGyqUnTIvE5DY8aaYYGNPnq8chGbQmmu0Iy9RuH9wg/exec`
 - Expected columns: ESCOLA, UBICACIÓ, DIA, ACTIVITAT, TORN, MONITORA, etc.
 
 ### Data Processing

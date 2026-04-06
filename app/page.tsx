@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils"
 import { format, addDays, startOfWeek, endOfWeek, isSameDay } from "date-fns"
 import { es } from "date-fns/locale"
 import RouteEditor from "@/components/route-editor"
+import { useProjects, type Project } from "@/lib/useProjects"
 
 // Tipos de datos existentes
 interface School {
@@ -1209,7 +1210,7 @@ function DeliveryModule({
   onOpenRouteEditor,
 }: {
   deliverySchools: DeliverySchool[]
-  onOpenRouteEditor: (allPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter?: number, additionalPlans?: DeliveryPlan[], onReorganizeCb?: (items: any) => void) => void
+  onOpenRouteEditor: (allPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter?: number, additionalPlans?: DeliveryPlan[], onReorganizeCb?: (items: any) => void, projectId?: string) => void
 }) {
   const [selectedWeek, setSelectedWeek] = useState<Date>(new Date())
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("trimestral")
@@ -1217,6 +1218,11 @@ function DeliveryModule({
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedActivities, setSelectedActivities] = useState<string[]>([...ALL_ACTIVITIES])
   const [selectedPlanningDay, setSelectedPlanningDay] = useState<string>("martes")
+
+  // Proyecto activo en Google Sheets
+  const { getProjects, createProject, updateProject, saveProjectDeliveries, getProjectDeliveries, deleteProject: deleteProjectApi, loading: projectLoading } = useProjects()
+  const [activeProject, setActiveProject] = useState<Project | null>(null)
+  const [projectSaved, setProjectSaved] = useState(false)
 
   const debouncedSearchTerm = useDebounced(searchTerm, 300)
 
@@ -1303,23 +1309,90 @@ function DeliveryModule({
   // Estado para reorganizaciones guardadas desde el editor de rutas
   const [savedReorganization, setSavedReorganization] = useState<{ [day: string]: any[] } | null>(null)
 
-  // Cargar reorganización guardada cuando cambia la semana o tipo
   const weekStartStr = useMemo(() => format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd'), [selectedWeek])
+  const weekEndStr = useMemo(() => format(endOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd'), [selectedWeek])
 
+  // Cargar proyecto activo desde Google Sheets cuando cambia la semana
   useEffect(() => {
-    try {
-      const key = `reorganization_${deliveryType}_${weekStartStr}`
-      const saved = localStorage.getItem(key)
-      if (saved) {
-        const data = JSON.parse(saved)
-        setSavedReorganization(data.reorganizedItems || null)
-      } else {
+    const loadProject = async () => {
+      try {
+        const projects = await getProjects('entrega')
+        // Buscar proyecto que coincida con semana y modo
+        const matching = projects.find(p =>
+          p.fechaInicio === weekStartStr && p.modo === deliveryType
+        )
+        if (matching) {
+          setActiveProject(matching)
+          setProjectSaved(true)
+          // Restaurar festivos del proyecto
+          if (matching.festivos && matching.festivos.length > 0) {
+            setHolidays(matching.festivos.map(f => ({ date: new Date(f), name: 'Festivo' })))
+          }
+          // Restaurar actividades del proyecto
+          if (matching.actividades && matching.actividades.length > 0) {
+            setSelectedActivities(matching.actividades)
+          }
+        } else {
+          setActiveProject(null)
+          setProjectSaved(false)
+        }
+      } catch (err) {
+        console.error('Error cargando proyecto:', err)
+        setActiveProject(null)
+        setProjectSaved(false)
+      }
+    }
+    loadProject()
+  }, [weekStartStr, deliveryType])
+
+  // Cargar reorganización guardada: primero desde proyecto (Sheets), fallback a localStorage
+  useEffect(() => {
+    const loadReorganization = async () => {
+      if (activeProject) {
+        try {
+          const deliveries = await getProjectDeliveries(activeProject.id)
+          if (deliveries.length > 0) {
+            // Reconstruir reorganizedItems desde las entregas del proyecto
+            const byDay: { [day: string]: any[] } = {}
+            deliveries.forEach(d => {
+              const day = d.diaPlanificado
+              if (!byDay[day]) byDay[day] = []
+              byDay[day].push({
+                id: d.centro,
+                name: d.centro,
+                address: d.direccion,
+                activities: d.actividades,
+                day: day,
+                orden: d.orden
+              })
+            })
+            // Ordenar por el campo orden dentro de cada día
+            Object.values(byDay).forEach(items => {
+              items.sort((a: any, b: any) => (a.orden || 0) - (b.orden || 0))
+            })
+            setSavedReorganization(byDay)
+            return
+          }
+        } catch (err) {
+          console.error('Error cargando entregas del proyecto:', err)
+        }
+      }
+      // Fallback a localStorage
+      try {
+        const key = `reorganization_${deliveryType}_${weekStartStr}`
+        const saved = localStorage.getItem(key)
+        if (saved) {
+          const data = JSON.parse(saved)
+          setSavedReorganization(data.reorganizedItems || null)
+        } else {
+          setSavedReorganization(null)
+        }
+      } catch {
         setSavedReorganization(null)
       }
-    } catch {
-      setSavedReorganization(null)
     }
-  }, [deliveryType, weekStartStr])
+    loadReorganization()
+  }, [activeProject, deliveryType, weekStartStr])
 
   // Escuchar cambios del editor de rutas (callback onApplyChanges)
   const handleRouteReorganization = useCallback((reorganizedItems: { [day: string]: any[] }) => {
@@ -1468,7 +1541,7 @@ function DeliveryModule({
       {/* Gestión de festivos */}
       <HolidayManager holidays={holidays} onHolidaysChange={setHolidays} />
 
-      {/* Resumen rápido + botones exportar */}
+      {/* Resumen rápido + proyecto + botones exportar */}
       <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
         <div className="flex items-center gap-4">
           <Truck className="h-5 w-5 text-blue-600 flex-shrink-0" />
@@ -1483,6 +1556,11 @@ function DeliveryModule({
             {holidays.length > 0 && (
               <span className="text-orange-600 ml-2">
                 ({holidays.length} festivo{holidays.length > 1 ? 's' : ''})
+              </span>
+            )}
+            {activeProject && (
+              <span className="text-green-600 ml-2 font-medium">
+                &middot; Proyecto guardado
               </span>
             )}
           </div>
@@ -1580,6 +1658,94 @@ function DeliveryModule({
             <Truck className="h-4 w-4 mr-1" />
             Imprimir
           </Button>
+          <Button
+            size="sm"
+            onClick={async () => {
+              if (filteredPlans.length === 0) return
+              try {
+                if (activeProject) {
+                  // Actualizar proyecto existente
+                  await updateProject(activeProject.id, {
+                    actividades: selectedActivities,
+                    festivos: holidays.map(h => format(h.date, 'yyyy-MM-dd')),
+                    modo: deliveryType as 'trimestral' | 'inicio-curso',
+                  })
+                  // Guardar entregas (distribución actual)
+                  const deliveries = Object.entries(plansByDay).flatMap(([day, plans]) => {
+                    const catalanDay = dayNameMapping[day]
+                    return plans.map((plan, index) => ({
+                      centro: plan.school.name,
+                      direccion: plan.school.address,
+                      diaPlanificado: catalanDay,
+                      actividades: plan.activities.map(a => a.activity),
+                      orden: index + 1,
+                    }))
+                  })
+                  await saveProjectDeliveries(activeProject.id, deliveries)
+                  setProjectSaved(true)
+                  alert('Proyecto actualizado')
+                } else {
+                  // Crear nuevo proyecto
+                  const projectId = await createProject({
+                    tipo: 'entrega',
+                    modo: deliveryType as 'trimestral' | 'inicio-curso',
+                    fechaInicio: weekStartStr,
+                    fechaFin: weekEndStr,
+                    actividades: selectedActivities,
+                    festivos: holidays.map(h => format(h.date, 'yyyy-MM-dd')),
+                  })
+                  if (projectId) {
+                    // Guardar entregas
+                    const deliveries = Object.entries(plansByDay).flatMap(([day, plans]) => {
+                      const catalanDay = dayNameMapping[day]
+                      return plans.map((plan, index) => ({
+                        centro: plan.school.name,
+                        direccion: plan.school.address,
+                        diaPlanificado: catalanDay,
+                        actividades: plan.activities.map(a => a.activity),
+                        orden: index + 1,
+                      }))
+                    })
+                    await saveProjectDeliveries(projectId, deliveries)
+                    // Recargar proyecto
+                    const projects = await getProjects('entrega')
+                    const newProject = projects.find(p => p.id === projectId)
+                    if (newProject) setActiveProject(newProject)
+                    setProjectSaved(true)
+                    alert('Proyecto creado y guardado')
+                  }
+                }
+              } catch (err) {
+                console.error('Error guardando proyecto:', err)
+                alert('Error guardando proyecto')
+              }
+            }}
+            disabled={filteredPlans.length === 0 || projectLoading}
+            className={activeProject ? "bg-green-600 hover:bg-green-700" : "bg-blue-600 hover:bg-blue-700"}
+          >
+            {projectLoading ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <CheckCircle className="h-4 w-4 mr-1" />
+            )}
+            {activeProject ? 'Actualizar proyecto' : 'Guardar proyecto'}
+          </Button>
+          {activeProject && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (!confirm('¿Eliminar este proyecto? Los datos se perderán.')) return
+                await deleteProjectApi(activeProject.id)
+                setActiveProject(null)
+                setProjectSaved(false)
+                setSavedReorganization(null)
+              }}
+              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1662,7 +1828,8 @@ function DeliveryModule({
                                   format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
                                   0,
                                   [],
-                                  handleRouteReorganization
+                                  handleRouteReorganization,
+                                  activeProject?.id
                                 )
                               }}
                               disabled={totalForRoute === 0}
@@ -2460,7 +2627,7 @@ export default function Home() {
   const [deliveryReorganizations, setDeliveryReorganizations] = useState<{ [key: string]: any }>({})
   
   // Función para abrir el editor de rutas con datos de entregas - Vista completa semanal
-  const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter: number = 0, additionalPlans: DeliveryPlan[] = [], onReorganizeCb?: (items: any) => void) => {
+  const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter: number = 0, additionalPlans: DeliveryPlan[] = [], onReorganizeCb?: (items: any) => void, projectId?: string) => {
     // Recibimos todos los planes de la semana para permitir drag & drop entre días
     // También recibimos planes adicionales de la semana siguiente (adelantados)
 
@@ -2505,9 +2672,9 @@ export default function Home() {
       selectedDay: dayName,
       deliveryType: deliveryType,
       weekStart: weekStart,
-      allPlans: allWeekPlans, // Pasar todos los planes para organizar por días
+      projectId: projectId,
+      allPlans: allWeekPlans,
       onApplyChanges: (reorganizedItems: any) => {
-        // Actualizar la vista de gestión con la reorganización
         if (onReorganizeCb) {
           onReorganizeCb(reorganizedItems)
         }
@@ -2516,7 +2683,6 @@ export default function Home() {
           ...prev,
           [reorganizationKey]: reorganizedItems
         }))
-        console.log('🔄 Reorganización aplicada en la app principal:', reorganizationKey)
       }
     })
   }
