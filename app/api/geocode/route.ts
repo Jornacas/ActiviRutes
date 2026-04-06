@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // Cache simple en memoria para evitar requests duplicados
 const geocodeCache = new Map<string, any>()
-const lastRequestTime = new Map<string, number>()
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const query = searchParams.get('q')
-    
+
     if (!query) {
       return NextResponse.json({ error: 'Query parameter required' }, { status: 400 })
     }
@@ -18,73 +17,48 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(geocodeCache.get(query))
     }
 
-    // Rate limiting simple: mínimo 500ms entre requests del mismo cliente
-    const clientId = request.headers.get('x-forwarded-for') || 'unknown'
-    const now = Date.now()
-    const lastRequest = lastRequestTime.get(clientId) || 0
-    
-    if (now - lastRequest < 500) {
-      await new Promise(resolve => setTimeout(resolve, 500 - (now - lastRequest)))
-    }
-    
-    lastRequestTime.set(clientId, Date.now())
-
-    // Hacer el request a OpenStreetMap desde el servidor (sin CORS)
-    const nominatimUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`
-    
-    const response = await fetch(nominatimUrl, {
-      headers: {
-        'User-Agent': 'ActiviRutes/1.0 (https://activirutes.app; contact@activirutes.app)'
-      }
-    })
-
-    if (!response.ok) {
-      // Si falla OpenStreetMap, devolver coordenadas aproximadas de Barcelona
-      const barcelonaFallback = [{
-        lat: (41.3851 + (Math.random() - 0.5) * 0.1).toString(),
-        lon: (2.1734 + (Math.random() - 0.5) * 0.1).toString(),
-        display_name: `${query} (ubicación aproximada - Barcelona)`
-      }]
-      
-      geocodeCache.set(query, barcelonaFallback)
-      return NextResponse.json(barcelonaFallback)
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!apiKey) {
+      return NextResponse.json([{ error: 'API key no configurada' }], { status: 500 })
     }
 
+    // Google Geocoding API
+    const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&region=es&language=ca&key=${apiKey}`
+
+    const response = await fetch(googleUrl)
     const data = await response.json()
-    
-    // Si no hay resultados, usar fallback
-    if (!data || data.length === 0) {
-      const barcelonaFallback = [{
-        lat: (41.3851 + (Math.random() - 0.5) * 0.05).toString(),
-        lon: (2.1734 + (Math.random() - 0.5) * 0.05).toString(),
-        display_name: `${query} (ubicación aproximada - Barcelona)`
-      }]
-      
-      geocodeCache.set(query, barcelonaFallback)
-      return NextResponse.json(barcelonaFallback)
+
+    if (data.status === 'OK' && data.results?.length > 0) {
+      // Convertir formato Google a formato compatible con el frontend
+      const results = data.results.map((r: any) => ({
+        lat: r.geometry.location.lat.toString(),
+        lon: r.geometry.location.lng.toString(),
+        display_name: r.formatted_address,
+      }))
+
+      geocodeCache.set(query, results)
+      setTimeout(() => geocodeCache.delete(query), 60 * 60 * 1000)
+      return NextResponse.json(results)
     }
 
-    // Cache por 1 hora
-    geocodeCache.set(query, data)
-    setTimeout(() => {
-      geocodeCache.delete(query)
-    }, 60 * 60 * 1000)
+    // Fallback si no hay resultados
+    const fallback = [{
+      lat: '41.3851',
+      lon: '2.1734',
+      display_name: `${query} (sin resultados - centro Barcelona)`
+    }]
+    geocodeCache.set(query, fallback)
+    return NextResponse.json(fallback)
 
-    return NextResponse.json(data)
-    
   } catch (error) {
     console.error('Error en geocoding API:', error)
-    
-    // Fallback en caso de error
     const { searchParams } = new URL(request.url)
     const query = searchParams.get('q') || 'Barcelona'
-    
-    const fallbackData = [{
-      lat: (41.3851 + (Math.random() - 0.5) * 0.1).toString(),
-      lon: (2.1734 + (Math.random() - 0.5) * 0.1).toString(),
-      display_name: `${query} (ubicación aproximada por error de red)`
-    }]
-    
-    return NextResponse.json(fallbackData)
+
+    return NextResponse.json([{
+      lat: '41.3851',
+      lon: '2.1734',
+      display_name: `${query} (error de red)`
+    }])
   }
 }
