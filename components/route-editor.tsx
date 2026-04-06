@@ -1483,15 +1483,26 @@ export default function RouteEditor({
                       startLocation={routePreferences.startLocation}
                       endLocation={routePreferences.endLocation}
                       onOptimizedOrder={(reorderedItems) => {
-                        // Apply optimized order to the current day
+                        // Apply optimized order but keep priority items first
                         const dayMapping: { [k: string]: string } = {
                           'lunes': 'Dilluns', 'martes': 'Dimarts', 'miércoles': 'Dimecres',
                           'jueves': 'Dijous', 'viernes': 'Divendres'
                         }
                         const catalanDay = dayMapping[selectedDayInDayView.toLowerCase()] || selectedDayInDayView
+                        // Recuperar el flag de prioridad de los items actuales
+                        const currentDayItems = weeklyPlansByDay[catalanDay] || []
+                        const priorityIds = new Set(currentDayItems.filter(i => i.priority).map(i => i.id))
+                        const itemsWithPriority = reorderedItems.map(item => ({
+                          ...item,
+                          day: catalanDay,
+                          priority: priorityIds.has(item.id),
+                        } as RouteItem))
+                        // Prioritarios primero, resto en orden optimizado
+                        const priorityFirst = itemsWithPriority.filter(i => i.priority)
+                        const rest = itemsWithPriority.filter(i => !i.priority)
                         setWeeklyPlansByDay(prev => ({
                           ...prev,
-                          [catalanDay]: reorderedItems.map(item => ({ ...item, day: catalanDay } as RouteItem))
+                          [catalanDay]: [...priorityFirst, ...rest]
                         }))
                         setIsDirty(true)
                       }}
