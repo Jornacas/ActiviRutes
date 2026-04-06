@@ -25,6 +25,7 @@ import {
   List,
   ExternalLink,
   Printer,
+  CheckCircle,
 } from "lucide-react"
 
 // Tipos para el editor de rutas
@@ -1237,70 +1238,13 @@ export default function RouteEditor({
             </CardContent>
           </Card>
 
-          {/* Guardar/Cargar Rutas */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Save className="h-5 w-5 mr-2" />
-                Gestión de Rutas Guardadas
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-2">Nombre de la ruta</label>
-                  <Input
-                    value={routeName}
-                    onChange={(e) => setRouteName(e.target.value)}
-                    placeholder={`Ruta ${config.selectedDay || "General"} - ${new Date().toLocaleDateString()}`}
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button onClick={saveCurrentRoute} disabled={isSaving || !routeName.trim()} className="w-full">
-                    {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                    Guardar Ruta
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium mb-2">Cargar ruta guardada</label>
-                  <Select value={selectedSavedRoute} onValueChange={setSelectedSavedRoute}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecciona una ruta guardada..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {savedRoutes.map((route) => (
-                        <SelectItem key={route.id} value={route.id}>
-                          {route.name} ({route.day}) - {new Date(route.updatedAt).toLocaleDateString()}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end gap-2">
-                  <Button
-                    onClick={loadSavedRoute}
-                    disabled={!selectedSavedRoute}
-                    variant="outline"
-                    className="flex-1 bg-transparent"
-                  >
-                    <FolderOpen className="h-4 w-4 mr-2" />
-                    Cargar
-                  </Button>
-                  <Button
-                    onClick={() => selectedSavedRoute && deleteSavedRoute(selectedSavedRoute)}
-                    disabled={!selectedSavedRoute}
-                    variant="outline"
-                    className="px-3"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Indicador de proyecto */}
+          {config.projectId && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+              <CheckCircle className="h-4 w-4" />
+              <span>Vinculado a proyecto — los cambios se guardan en Google Sheets</span>
+            </div>
+          )}
 
           {/* Vista de Centros - Día Individual o Semana Completa */}
           {(() => {
