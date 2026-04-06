@@ -9,6 +9,23 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { MapPin, Clock, Package, CheckCircle, User, Signature, Truck, RefreshCw, Loader2, ArrowUp, ArrowDown, X, Edit3, Navigation, BarChart3, Map, Camera, Trash2, RotateCcw, Save } from "lucide-react"
 
+// Parsear hora de Google Sheets (puede venir como "1899-12-30T16:20:39.000Z" o "09:30")
+function parseStartTime(raw: string): string {
+  if (!raw) return ''
+  // Si ya es formato HH:MM
+  if (/^\d{1,2}:\d{2}$/.test(raw)) return raw
+  // Si es formato ISO de Sheets (1899-12-30T...)
+  if (raw.includes('T') && raw.includes(':')) {
+    try {
+      const d = new Date(raw)
+      if (!isNaN(d.getTime())) {
+        return `${d.getUTCHours().toString().padStart(2, '0')}:${d.getUTCMinutes().toString().padStart(2, '0')}`
+      }
+    } catch {}
+  }
+  return raw
+}
+
 // 🐛 CONTROL DE DEBUG - Cambiar a true para activar logs de debug
 const DEBUG_MODE = false
 
@@ -865,7 +882,7 @@ export default function TransporterApp() {
                 address: item.direccion || '',
                 activities: item.actividades || [],
                 type: 'delivery' as const,
-                startTime: item.startTime || '',
+                startTime: parseStartTime(item.startTime || ''),
                 day: day,
                 totalStudents: 0,
                 price: 0,
@@ -930,7 +947,7 @@ export default function TransporterApp() {
               address: item.address || 'Dirección desde ruta compartida',
               activities: item.a || item.activities || [],
               type: (decodedData.t === 'd' ? 'delivery' : decodedData.t === 'p' ? 'pickup' : decodedData.type) || "delivery",
-              startTime: item.startTime || `${9 + index}:00`,
+              startTime: parseStartTime(item.startTime || ''),
               totalStudents: 0,
               price: 0
             }
