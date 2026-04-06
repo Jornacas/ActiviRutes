@@ -611,10 +611,14 @@ const testGoogleSheetsDelivery = async () => {
 export default function TransporterApp() {
   const params = useParams()
   const routeId = params.routeId as string
+  const [allItemsByDay, setAllItemsByDay] = useState<{[day: string]: RouteItem[]}>({})
+  const [selectedDay, setSelectedDay] = useState<string>('')
   const [routeItems, setRouteItems] = useState<RouteItem[]>([])
   const [deliveryStatus, setDeliveryStatus] = useState<{[itemId: string]: DeliveryData}>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const deliveryStatusKey = projectId ? `deliveryStatus_${projectId}` : `deliveryStatus_${routeId}`
   const [isEditing, setIsEditing] = useState(false)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [sendingToSheets, setSendingToSheets] = useState<string | null>(null) // ID del item que se está enviando
@@ -808,7 +812,7 @@ export default function TransporterApp() {
       setDeliveryStatus(newStatus)
       
       // Guardar estado sincronizado
-      localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(newStatus))
+      localStorage.setItem(deliveryStatusKey, JSON.stringify(newStatus))
       
       debugLog('🎯 Estado sincronizado correctamente')
       
@@ -836,39 +840,52 @@ export default function TransporterApp() {
       debugLog('📱 === CARGANDO RUTA DEL TRANSPORTISTA ===')
       debugLog('🆔 Route ID:', routeId)
 
-      // 1. Intentar cargar desde proyecto (API) si hay parámetros projectId y dia
+      // 1. Intentar cargar desde proyecto (API) si hay parámetro projectId
       const urlParams = new URLSearchParams(window.location.search)
-      const projectId = urlParams.get('projectId')
+      const urlProjectId = urlParams.get('projectId')
       const dia = urlParams.get('dia')
+      if (urlProjectId) setProjectId(urlProjectId)
+      const projectId = urlProjectId
 
-      if (projectId && dia) {
+      if (projectId) {
         try {
-          debugLog('🔄 Cargando ruta desde proyecto:', projectId, dia)
-          const response = await fetch('/api/projects', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'getProjectRoute', projectId, dia }),
-          })
+          debugLog('🔄 Cargando entregas del proyecto:', projectId)
+          // Cargar TODAS las entregas del proyecto (todos los días)
+          const response = await fetch(`/api/projects?action=getProjectDeliveries&projectId=${projectId}`)
           const result = await response.json()
           if (result.status === 'success' && result.data?.length > 0) {
-            const routeItemsFromProject: RouteItem[] = result.data.map((item: any, index: number) => ({
-              id: item.centro || `project-item-${index}`,
-              name: item.centro.includes('Escola') ? item.centro : `Escola ${item.centro}`,
-              address: item.direccion || '',
-              activities: item.actividades || [],
-              type: 'delivery' as const,
-              startTime: item.startTime || '',
-              totalStudents: 0,
-              price: 0,
-            }))
-            setRouteItems(routeItemsFromProject)
-            // Restaurar progreso de entregas si existe
-            const savedDeliveryStatus = localStorage.getItem(`deliveryStatus_${routeId}`)
+            // Agrupar por día
+            const byDay: {[day: string]: RouteItem[]} = {}
+            result.data.forEach((item: any, index: number) => {
+              const day = item.diaPlanificado || 'Sin día'
+              if (!byDay[day]) byDay[day] = []
+              byDay[day].push({
+                id: item.centro || `project-item-${index}`,
+                name: item.centro.includes('Escola') ? item.centro : `Escola ${item.centro}`,
+                address: item.direccion || '',
+                activities: item.actividades || [],
+                type: 'delivery' as const,
+                startTime: item.startTime || '',
+                day: day,
+                totalStudents: 0,
+                price: 0,
+              })
+            })
+            setAllItemsByDay(byDay)
+            // Seleccionar el día del parámetro URL o el primero disponible
+            const dayOrder = ['Dilluns', 'Dimarts', 'Dimecres', 'Dijous', 'Divendres']
+            const availableDays = dayOrder.filter(d => byDay[d]?.length > 0)
+            const initialDay = (dia && byDay[dia]) ? dia : availableDays[0] || ''
+            setSelectedDay(initialDay)
+            setRouteItems(byDay[initialDay] || [])
+            // Restaurar progreso de entregas
+            const statusKey = `deliveryStatus_${projectId}`
+            const savedDeliveryStatus = localStorage.getItem(statusKey)
             if (savedDeliveryStatus) {
               setDeliveryStatus(JSON.parse(savedDeliveryStatus))
               debugLog('✅ Progreso de entregas restaurado')
             }
-            debugLog(`✅ Ruta cargada desde proyecto: ${routeItemsFromProject.length} paradas`)
+            debugLog(`✅ Proyecto cargado: ${availableDays.length} días, ${result.data.length} paradas total`)
             return
           }
         } catch (err) {
@@ -881,7 +898,7 @@ export default function TransporterApp() {
       if (savedRoute) {
         const route = JSON.parse(savedRoute)
         setRouteItems(route.items)
-        const savedDeliveryStatus = localStorage.getItem(`deliveryStatus_${routeId}`)
+        const savedDeliveryStatus = localStorage.getItem(deliveryStatusKey)
         if (savedDeliveryStatus) {
           setDeliveryStatus(JSON.parse(savedDeliveryStatus))
         }
@@ -1103,34 +1120,29 @@ export default function TransporterApp() {
             }
             
             try {
-              localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(lightweightStatus))
-              addDebugLog(`✅ Estado local actualizado (optimizado) para ruta: ${routeId}`)
-            } catch (quotaError) {
+              localStorage.setItem(deliveryStatusKey, JSON.stringify(lightweightStatus))
+              addDebugLog(`✅ Estado local actualizado (optimizado)`)
+            } catch (quotaError: any) {
               if (quotaError.name === 'QuotaExceededError') {
                 addDebugLog('🧹 CUOTA EXCEDIDA en estado - Limpiando rutas antiguas...')
-                
-                // Limpiar estados de rutas antiguas
+
                 const allKeys = Object.keys(localStorage)
                 const routeKeys = allKeys.filter(key => key.startsWith('deliveryStatus_'))
-                
+
                 if (routeKeys.length > 3) {
-                  // Eliminar todas las rutas menos la actual
                   routeKeys.forEach(key => {
-                    if (key !== `deliveryStatus_${routeId}`) {
+                    if (key !== deliveryStatusKey) {
                       localStorage.removeItem(key)
-                      addDebugLog(`🗑️ Ruta eliminada: ${key}`)
                     }
                   })
-                  
-                  // Intentar guardar de nuevo con solo datos mínimos
-                  const minimalStatus = { [itemId]: { 
-                    deliveryId, 
-                    timestamp: newDeliveryData.timestamp, 
+
+                  const minimalStatus = { [itemId]: {
+                    deliveryId,
+                    timestamp: newDeliveryData.timestamp,
                     status: 'delivered',
-                    recipientName: newDeliveryData.recipientName 
+                    recipientName: newDeliveryData.recipientName
                   }}
-                  localStorage.setItem(`deliveryStatus_${routeId}`, JSON.stringify(minimalStatus))
-                  addDebugLog(`✅ Estado guardado (mínimo) después de limpieza`)
+                  localStorage.setItem(deliveryStatusKey, JSON.stringify(minimalStatus))
                 }
               }
             }
@@ -1369,6 +1381,39 @@ export default function TransporterApp() {
             <p className="text-xs text-gray-500 mt-1">{progressPercentage}% completado</p>
           </div>
         </div>
+
+        {/* Selector de días */}
+        {Object.keys(allItemsByDay).length > 1 && (
+          <div className="flex gap-1 mt-3 overflow-x-auto pb-1">
+            {['Dilluns', 'Dimarts', 'Dimecres', 'Dijous', 'Divendres']
+              .filter(d => allItemsByDay[d]?.length > 0)
+              .map(day => {
+                const dayLabels: {[k:string]:string} = { Dilluns: 'Lun', Dimarts: 'Mar', Dimecres: 'Mié', Dijous: 'Jue', Divendres: 'Vie' }
+                const isSelected = day === selectedDay
+                const dayDelivered = allItemsByDay[day]?.every(item => deliveryStatus[item.id]?.status === 'delivered')
+                return (
+                  <button
+                    key={day}
+                    onClick={() => {
+                      setSelectedDay(day)
+                      setRouteItems(allItemsByDay[day] || [])
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all flex-shrink-0 ${
+                      isSelected
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : dayDelivered
+                          ? 'bg-green-100 text-green-700 border border-green-300'
+                          : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200'
+                    }`}
+                  >
+                    {dayLabels[day] || day}
+                    <span className="ml-1 text-xs opacity-75">({allItemsByDay[day]?.length})</span>
+                    {dayDelivered && <span className="ml-1">✓</span>}
+                  </button>
+                )
+              })}
+          </div>
+        )}
 
         {/* Botones principales */}
         <div className="flex flex-col md:flex-row gap-2 mt-4">
