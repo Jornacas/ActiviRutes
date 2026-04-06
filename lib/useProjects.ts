@@ -24,6 +24,9 @@ export interface ProjectDelivery {
   actividades: string[]
   notas: string
   orden: number
+  startTime?: string
+  turn?: string
+  priority?: boolean
 }
 
 export interface CreateProjectData {
@@ -43,6 +46,9 @@ export interface DeliveryToSave {
   actividades: string[]
   estado?: 'pendiente'
   orden?: number
+  startTime?: string
+  turn?: string
+  priority?: boolean
 }
 
 export interface ProjectRouteItem {
@@ -52,6 +58,9 @@ export interface ProjectRouteItem {
   actividades: string[]
   orden: number
   estado: string
+  startTime?: string
+  turn?: string
+  priority?: boolean
 }
 
 // Hook para gestionar proyectos

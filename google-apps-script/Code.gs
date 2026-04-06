@@ -465,20 +465,30 @@ function initProjectSheets() {
     }
   }
 
-  // Hoja de Entregas del Proyecto (10 columnas)
+  // Hoja de Entregas del Proyecto (13 columnas)
   let deliveriesSheet = spreadsheet.getSheetByName('ProyectoEntregas');
   if (!deliveriesSheet) {
     deliveriesSheet = spreadsheet.insertSheet('ProyectoEntregas');
-    deliveriesSheet.getRange(1, 1, 1, 10).setValues([[
+    deliveriesSheet.getRange(1, 1, 1, 13).setValues([[
       'ProyectoID', 'Centro', 'Direccion', 'FechaPlanificada', 'DiaPlanificado',
-      'FechaEntrega', 'Estado', 'Actividades', 'Notas', 'Orden'
+      'FechaEntrega', 'Estado', 'Actividades', 'Notas', 'Orden',
+      'HoraInicio', 'Turno', 'Prioritario'
     ]]);
-    logToSheet('✅ Hoja ProyectoEntregas creada (v2)');
+    logToSheet('✅ Hoja ProyectoEntregas creada (v3)');
   } else {
-    // Migrar: añadir columna Orden si no existe
-    var dHeaders = deliveriesSheet.getRange(1, 1, 1, 10).getValues()[0];
+    // Migrar: añadir columnas nuevas si no existen
+    var dHeaders = deliveriesSheet.getRange(1, 1, 1, 13).getValues()[0];
     if (!dHeaders[9] || dHeaders[9] !== 'Orden') {
       deliveriesSheet.getRange(1, 10).setValue('Orden');
+    }
+    if (!dHeaders[10] || dHeaders[10] !== 'HoraInicio') {
+      deliveriesSheet.getRange(1, 11).setValue('HoraInicio');
+    }
+    if (!dHeaders[11] || dHeaders[11] !== 'Turno') {
+      deliveriesSheet.getRange(1, 12).setValue('Turno');
+    }
+    if (!dHeaders[12] || dHeaders[12] !== 'Prioritario') {
+      deliveriesSheet.getRange(1, 13).setValue('Prioritario');
     }
   }
 
@@ -648,7 +658,7 @@ function saveProjectDeliveries(projectId, deliveries) {
       }
     }
 
-    // Preparar filas para insertar (10 columnas)
+    // Preparar filas para insertar (13 columnas)
     const rows = deliveries.map((d, index) => [
       projectId,
       d.centro,
@@ -659,7 +669,10 @@ function saveProjectDeliveries(projectId, deliveries) {
       d.estado || 'pendiente',   // 'pendiente', 'entregado', 'adelantado'
       Array.isArray(d.actividades) ? d.actividades.join(',') : d.actividades,
       d.notas || '',
-      d.orden != null ? d.orden : index + 1  // Orden dentro del día
+      d.orden != null ? d.orden : index + 1,  // Orden dentro del día
+      d.startTime || '',         // Hora de inicio: "09:30"
+      d.turn || '',              // Turno: "Matí" / "Tarda"
+      d.priority ? 'true' : ''   // Prioritario
     ]);
 
     // Insertar todas las filas
@@ -668,7 +681,7 @@ function saveProjectDeliveries(projectId, deliveries) {
         deliveriesSheet.getLastRow() + 1,
         1,
         rows.length,
-        10
+        13
       ).setValues(rows);
     }
 
@@ -705,7 +718,7 @@ function getProjectDeliveries(projectId) {
       });
     }
 
-    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 10).getValues();
+    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 13).getValues();
 
     // Filtrar por proyecto y mapear
     const deliveries = data
@@ -720,7 +733,10 @@ function getProjectDeliveries(projectId) {
         estado: row[6],
         actividades: row[7] ? String(row[7]).split(',') : [],
         notas: row[8],
-        orden: row[9] || 0
+        orden: row[9] || 0,
+        startTime: row[10] || '',
+        turn: row[11] || '',
+        priority: row[12] === 'true'
       }))
       // Ordenar por día y luego por orden dentro del día
       .sort((a, b) => {
@@ -957,7 +973,7 @@ function getProjectRoute(projectId, dia) {
       return createJSONResponse({ status: 'success', data: [], message: 'Sin entregas' });
     }
 
-    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 10).getValues();
+    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 13).getValues();
 
     var items = data
       .filter(function(row) { return row[0] === projectId && row[4] === dia; })
@@ -968,7 +984,10 @@ function getProjectRoute(projectId, dia) {
           diaPlanificado: row[4],
           estado: row[6],
           actividades: row[7] ? String(row[7]).split(',') : [],
-          orden: row[9] || 0
+          orden: row[9] || 0,
+          startTime: row[10] || '',
+          turn: row[11] || '',
+          priority: row[12] === 'true'
         };
       })
       .sort(function(a, b) { return (a.orden || 0) - (b.orden || 0); });

@@ -866,7 +866,7 @@ export default function RouteEditor({
   const saveToProject = async () => {
     setIsSaving(true)
     try {
-      // Preparar entregas con orden
+      // Preparar entregas con orden, hora, turno y prioridad
       const deliveries = Object.entries(weeklyPlansByDay).flatMap(([day, items]) =>
         items.map((item, index) => ({
           centro: item.name,
@@ -874,6 +874,9 @@ export default function RouteEditor({
           diaPlanificado: day,
           actividades: item.activities || [],
           orden: index + 1,
+          startTime: item.startTime || '',
+          turn: item.turn || '',
+          priority: item.priority || false,
         }))
       )
 

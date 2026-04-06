@@ -1393,7 +1393,10 @@ function DeliveryModule({
                 address: d.direccion,
                 activities: d.actividades,
                 day: day,
-                orden: d.orden
+                orden: d.orden,
+                startTime: d.startTime || '',
+                turn: d.turn || '',
+                priority: d.priority || false,
               })
             })
             // Ordenar por el campo orden dentro de cada día
@@ -1466,11 +1469,16 @@ function DeliveryModule({
 
           const existingPlan = plansByName[name]
           if (existingPlan) {
-            // Enriquecer con datos actuales del CSV
-            grouped[spanishDay].push({ ...existingPlan, deliveryDay: day })
+            // Enriquecer con datos actuales del CSV + preservar priority del proyecto
+            const enriched: any = { ...existingPlan, deliveryDay: day }
+            if (item.priority) enriched.priority = true
+            if (item.startTime) enriched.activities = existingPlan.activities.length > 0
+              ? existingPlan.activities
+              : [{ day, turn: item.turn || '', activity: '', startTime: item.startTime }]
+            grouped[spanishDay].push(enriched)
           } else {
             // Centro adelantado o no en filteredPlans — crear plan sintético
-            grouped[spanishDay].push({
+            const syntheticPlan: any = {
               school: {
                 name: name,
                 address: item.address || '',
@@ -1480,11 +1488,16 @@ function DeliveryModule({
               deliveryDate: new Date(),
               deliveryDay: day,
               activities: (item.activities || []).map((a: any) => ({
-                day: day, turn: '', activity: typeof a === 'string' ? a : a.activity || ''
+                day: day,
+                turn: item.turn || '',
+                activity: typeof a === 'string' ? a : a.activity || '',
+                startTime: item.startTime || '',
               })),
               consolidated: false,
-              reason: 'adelantado'
-            })
+              reason: 'adelantado',
+            }
+            if (item.priority) syntheticPlan.priority = true
+            grouped[spanishDay].push(syntheticPlan)
           }
         })
       })
@@ -1743,6 +1756,9 @@ function DeliveryModule({
                       diaPlanificado: catalanDay,
                       actividades: plan.activities.map(a => a.activity),
                       orden: index + 1,
+                      startTime: plan.activities[0]?.startTime || '',
+                      turn: plan.activities[0]?.turn || '',
+                      priority: (plan as any).priority || false,
                     }))
                   })
                   // Añadir adelantados seleccionados que no estén ya en plansByDay
@@ -1750,7 +1766,6 @@ function DeliveryModule({
                   const adelantados = nextWeekPlans
                     .filter(p => selectedNextWeekCenters.has(p.school.name) && !centrosYaIncluidos.has(p.school.name))
                   if (adelantados.length > 0) {
-                    // Asignar al primer día disponible (se reorganizarán en el editor)
                     const firstDay = dayNameMapping[availableDays[0]] || 'Dilluns'
                     const baseIndex = deliveries.filter(d => d.diaPlanificado === firstDay).length
                     adelantados.forEach((plan, i) => {
@@ -1760,6 +1775,9 @@ function DeliveryModule({
                         diaPlanificado: firstDay,
                         actividades: plan.activities.map(a => a.activity),
                         orden: baseIndex + i + 1,
+                        startTime: plan.activities[0]?.startTime || '',
+                        turn: plan.activities[0]?.turn || '',
+                        priority: false,
                       })
                     })
                   }
@@ -2805,8 +2823,9 @@ export default function Home() {
         price: 0,
         monitor: "",
         type: "delivery" as const,
-        filteredActivities: activitiesToUse, // Información adicional para debugging
-        originalActivities: plan.activities.length, // Para saber si se filtró
+        priority: (plan as any).priority || false,
+        filteredActivities: activitiesToUse,
+        originalActivities: plan.activities.length,
       }
     })
 
