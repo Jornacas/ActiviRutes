@@ -30,7 +30,11 @@ declare global {
 const geocodeCache = new Map<string, { lat: number; lng: number }>()
 
 function improveAddress(name: string, address: string): string {
-  let improved = address
+  // Incluir nombre de la escuela para mejor precisión de geocoding
+  const schoolPrefix = name && !address.toLowerCase().includes(name.toLowerCase())
+    ? `Escola ${name}, `
+    : ''
+  let improved = `${schoolPrefix}${address}`
   if (!improved.toLowerCase().includes('barcelona')) {
     improved += ', Barcelona, España'
   }
