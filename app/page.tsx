@@ -1946,8 +1946,11 @@ function DeliveryModule({
                 const assignedPlans = plansByDay[day] || []
                 const isHoliday = !availableDays.includes(day)
 
-                // Centros seleccionados de semana siguiente para este día
-                const nextWeekSelectedForDay = nextWeekPlans.filter(p => selectedNextWeekCenters.has(p.school.name))
+                // Centros adelantados que aún NO están en plansByDay (recién seleccionados)
+                const centrosEnPlansByDay = new Set(Object.values(plansByDay).flat().map(p => p.school.name))
+                const nextWeekSelectedForDay = nextWeekPlans.filter(
+                  p => selectedNextWeekCenters.has(p.school.name) && !centrosEnPlansByDay.has(p.school.name)
+                )
                 const totalForRoute = assignedPlans.length + nextWeekSelectedForDay.length
 
                 return (
@@ -1971,21 +1974,22 @@ function DeliveryModule({
                           <div className="flex gap-2">
                             <Button
                               onClick={() => {
-                                // Pasar TODOS los centros de la semana (+ adelantados) para vista semanal completa
-                                const allWeekPlans = filteredPlans.map(plan => ({
-                                  ...plan,
-                                  // Asignar el día correcto según plansByDay
-                                  deliveryDay: (() => {
-                                    for (const [d, plans] of Object.entries(plansByDay)) {
-                                      if (plans.some(p => p.school.name === plan.school.name)) {
-                                        return dayNameMapping[d] || plan.deliveryDay
-                                      }
-                                    }
-                                    return plan.deliveryDay
-                                  })()
-                                }))
+                                // Pasar TODOS los centros desde plansByDay (fuente de verdad)
+                                // plansByDay ya incluye adelantados en el día correcto
+                                const allPlansFromByDay: DeliveryPlan[] = []
+                                Object.entries(plansByDay).forEach(([spanishDay, plans]) => {
+                                  const catalanDay = dayNameMapping[spanishDay]
+                                  plans.forEach(plan => {
+                                    allPlansFromByDay.push({ ...plan, deliveryDay: catalanDay })
+                                  })
+                                })
+                                // Añadir adelantados recién seleccionados que no estén ya en plansByDay
+                                const centrosYaIncluidos = new Set(allPlansFromByDay.map(p => p.school.name))
+                                const nuevosAdelantados = nextWeekPlans
+                                  .filter(p => selectedNextWeekCenters.has(p.school.name) && !centrosYaIncluidos.has(p.school.name))
+
                                 onOpenRouteEditor(
-                                  [...allWeekPlans, ...nextWeekSelectedForDay],
+                                  [...allPlansFromByDay, ...nuevosAdelantados],
                                   formattedDay,
                                   deliveryType,
                                   format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
@@ -2081,11 +2085,14 @@ function DeliveryModule({
                           </div>
                         )}
 
-                        {/* Aprovechar ruta: centros de próxima semana (excluir TODOS los de esta semana) */}
+                        {/* Aprovechar ruta: centros de próxima semana (excluir los que ya están en plansByDay o seleccionados) */}
                         {(() => {
-                          const allCurrentWeekCenters = new Set(filteredPlans.map(p => p.school.name))
+                          const allCentrosIncluidos = new Set([
+                            ...Object.values(plansByDay).flat().map(p => p.school.name),
+                            ...Array.from(selectedNextWeekCenters)
+                          ])
                           const availableNextWeek = nextWeekPlans.filter(
-                            plan => !allCurrentWeekCenters.has(plan.school.name) && !selectedNextWeekCenters.has(plan.school.name)
+                            plan => !allCentrosIncluidos.has(plan.school.name)
                           )
 
                           if (availableNextWeek.length === 0) return null
