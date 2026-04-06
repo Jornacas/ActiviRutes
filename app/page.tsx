@@ -30,6 +30,7 @@ import {
   Plus,
   Route,
   X,
+  FolderOpen,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { format, addDays, startOfWeek, endOfWeek, isSameDay } from "date-fns"
@@ -1223,6 +1224,8 @@ function DeliveryModule({
   const { getProjects, createProject, updateProject, saveProjectDeliveries, getProjectDeliveries, deleteProject: deleteProjectApi, loading: projectLoading } = useProjects()
   const [activeProject, setActiveProject] = useState<Project | null>(null)
   const [projectSaved, setProjectSaved] = useState(false)
+  const [availableProjects, setAvailableProjects] = useState<Project[]>([])
+  const [showProjectSelector, setShowProjectSelector] = useState(false)
 
   const debouncedSearchTerm = useDebounced(searchTerm, 300)
 
@@ -1317,6 +1320,7 @@ function DeliveryModule({
     const loadProject = async () => {
       try {
         const projects = await getProjects('entrega')
+        setAvailableProjects(projects)
         // Buscar proyecto que coincida con semana y modo
         const matching = projects.find(p =>
           p.fechaInicio === weekStartStr && p.modo === deliveryType
@@ -1344,6 +1348,32 @@ function DeliveryModule({
     }
     loadProject()
   }, [weekStartStr, deliveryType])
+
+  // Cerrar selector de proyectos al hacer click fuera
+  useEffect(() => {
+    if (!showProjectSelector) return
+    const handleClick = () => setShowProjectSelector(false)
+    const timer = setTimeout(() => document.addEventListener('click', handleClick), 0)
+    return () => { clearTimeout(timer); document.removeEventListener('click', handleClick) }
+  }, [showProjectSelector])
+
+  // Abrir un proyecto existente
+  const loadProjectById = useCallback(async (project: Project) => {
+    setActiveProject(project)
+    setProjectSaved(true)
+    // Restaurar configuración del proyecto
+    setDeliveryType(project.modo as DeliveryType)
+    setSelectedWeek(new Date(project.fechaInicio))
+    if (project.festivos && project.festivos.length > 0) {
+      setHolidays(project.festivos.map(f => ({ date: new Date(f), name: 'Festivo' })))
+    } else {
+      setHolidays([])
+    }
+    if (project.actividades && project.actividades.length > 0) {
+      setSelectedActivities(project.actividades)
+    }
+    setShowProjectSelector(false)
+  }, [])
 
   // Cargar reorganización guardada: primero desde proyecto (Sheets), fallback a localStorage
   useEffect(() => {
@@ -1730,22 +1760,84 @@ function DeliveryModule({
             )}
             {activeProject ? 'Actualizar proyecto' : 'Guardar proyecto'}
           </Button>
-          {activeProject && (
+          <div className="relative">
             <Button
               variant="outline"
               size="sm"
               onClick={async () => {
-                if (!confirm('¿Eliminar este proyecto? Los datos se perderán.')) return
-                await deleteProjectApi(activeProject.id)
-                setActiveProject(null)
-                setProjectSaved(false)
-                setSavedReorganization(null)
+                // Recargar lista de proyectos al abrir
+                try {
+                  const projects = await getProjects('entrega')
+                  setAvailableProjects(projects)
+                } catch {}
+                setShowProjectSelector(!showProjectSelector)
               }}
-              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              disabled={projectLoading}
             >
-              <X className="h-4 w-4" />
+              <FolderOpen className="h-4 w-4 mr-1" />
+              Abrir proyecto
             </Button>
-          )}
+            {showProjectSelector && availableProjects.length > 0 && (
+              <div className="absolute top-full right-0 mt-1 w-72 bg-white border rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+                {availableProjects.map(project => {
+                  const isActive = activeProject?.id === project.id
+                  const weekLabel = (() => {
+                    try { return format(new Date(project.fechaInicio), "d MMM yyyy", { locale: es }) }
+                    catch { return project.fechaInicio }
+                  })()
+                  return (
+                    <div
+                      key={project.id}
+                      className={cn(
+                        "flex items-center justify-between p-3 hover:bg-blue-50 cursor-pointer border-b last:border-b-0",
+                        isActive && "bg-green-50"
+                      )}
+                      onClick={() => loadProjectById(project)}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          Semana {weekLabel}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {project.modo} &middot; {project.actividades.join(', ')}
+                          {project.festivos?.length > 0 && ` &middot; ${project.festivos.length} festivo${project.festivos.length > 1 ? 's' : ''}`}
+                        </div>
+                      </div>
+                      {isActive && (
+                        <span className="text-green-600 text-xs font-medium ml-2">activo</span>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-1 p-1 h-6 w-6 text-red-400 hover:text-red-600 hover:bg-red-50"
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (!confirm('¿Eliminar este proyecto?')) return
+                          await deleteProjectApi(project.id)
+                          setAvailableProjects(prev => prev.filter(p => p.id !== project.id))
+                          if (activeProject?.id === project.id) {
+                            setActiveProject(null)
+                            setProjectSaved(false)
+                            setSavedReorganization(null)
+                          }
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )
+                })}
+                {availableProjects.length === 0 && (
+                  <div className="p-3 text-sm text-gray-400 text-center">No hay proyectos guardados</div>
+                )}
+              </div>
+            )}
+            {showProjectSelector && availableProjects.length === 0 && (
+              <div className="absolute top-full right-0 mt-1 w-56 bg-white border rounded-lg shadow-lg z-50 p-3 text-sm text-gray-400 text-center">
+                No hay proyectos guardados
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
