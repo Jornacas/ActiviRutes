@@ -983,39 +983,36 @@ export default function RouteEditor({
     }
   };
 
-  const generateTransporterLink = async () => {
-    if (currentItems.length === 0) {
-      alert("No hay paradas en la ruta para generar el link del transportista");
+  // Generar link transportista para un día concreto (reutilizable desde vista día y semana)
+  const generateTransporterLinkForDay = async (catalanDay: string, dayItems: RouteItem[]) => {
+    if (dayItems.length === 0) {
+      alert("No hay paradas para este día");
       return;
     }
 
-    const currentRouteId = `${config.type}-${config.selectedDay || 'general'}-${Date.now()}`;
-    console.log('🔧 === GENERANDO LINK DEL TRANSPORTISTA ===')
-    console.log('📋 Config:', config)
-    console.log('🆔 RouteID generado:', currentRouteId)
-    console.log('📊 Items en la ruta:', currentItems.length)
-    
+    // RouteId estable basado en projectId + dia (no timestamp) para que persista entre refrescos
+    const stableId = config.projectId
+      ? `${config.projectId}-${catalanDay}`
+      : `${config.type}-${catalanDay}-${config.weekStart || 'noweek'}`
+
     const routeData = {
-      items: currentItems,
+      items: dayItems,
       metadata: {
         type: config.type,
-        day: config.selectedDay,
+        day: catalanDay,
         generatedAt: new Date().toISOString(),
-        totalStops: currentItems.length
+        totalStops: dayItems.length
       }
     };
-    
-    // Save the current route items to localStorage for the transporter app to load
-    localStorage.setItem(`savedRoute_${currentRouteId}`, JSON.stringify(routeData));
-    console.log('💾 Ruta guardada en localStorage con key:', `savedRoute_${currentRouteId}`)
-    
-    // Versión COMPLETA para copiar/compartir
+
+    localStorage.setItem(`savedRoute_${stableId}`, JSON.stringify(routeData));
+
     const fullSummary = {
-      id: currentRouteId,
+      id: stableId,
       type: config.type,
-      day: config.selectedDay,
-      total: currentItems.length,
-      items: currentItems.map(item => ({
+      day: catalanDay,
+      total: dayItems.length,
+      items: dayItems.map(item => ({
         id: item.id,
         name: item.name,
         address: item.address,
@@ -1023,49 +1020,36 @@ export default function RouteEditor({
         startTime: item.startTime || '09:00'
       }))
     };
-    
-    // Codificar versión completa
-    const fullEncoded = btoa(JSON.stringify(fullSummary));
-    
-    // Link base — incluir projectId y dia si están disponibles
+
+    const fullEncoded = btoa(unescape(encodeURIComponent(JSON.stringify(fullSummary))));
+    const baseUrl = `${window.location.origin}/transporter/${stableId}`;
+    const projectParams = config.projectId ? `&projectId=${config.projectId}&dia=${encodeURIComponent(catalanDay)}` : ''
+    const fullLink = `${baseUrl}?data=${fullEncoded}${projectParams}`;
+
+    let shortLink = fullLink;
+    try {
+      shortLink = await shortenURL(fullLink);
+    } catch {
+      // usar link original
+    }
+
+    setTransporterLink(shortLink);
     const hostname = window.location.hostname;
-    const baseUrl = `${window.location.origin}/transporter/${currentRouteId}`;
+    setLocalIP(hostname === 'localhost' || hostname === '127.0.0.1' ? "desarrollo-local" : "produccion");
+    setShowTransporterModal(true);
+  };
+
+  const generateTransporterLink = async () => {
+    if (currentItems.length === 0) {
+      alert("No hay paradas en la ruta para generar el link del transportista");
+      return;
+    }
     const dayMapping: { [k: string]: string } = {
       'lunes': 'Dilluns', 'martes': 'Dimarts', 'miércoles': 'Dimecres',
       'jueves': 'Dijous', 'viernes': 'Divendres'
     }
     const catalanDay = dayMapping[selectedDayInDayView?.toLowerCase()] || selectedDayInDayView
-    const projectParams = config.projectId ? `&projectId=${config.projectId}&dia=${encodeURIComponent(catalanDay)}` : ''
-    const fullLink = `${baseUrl}?data=${fullEncoded}${projectParams}`;
-    
-    console.log('🌐 Hostname:', hostname)
-    console.log('🔗 Link completo generado:', fullLink)
-    console.log('📦 Datos codificados incluidos en URL para compatibilidad móvil')
-    
-    // Acortar URL para hacerla más manejable
-    let shortFullLink = fullLink;
-    
-    try {
-      console.log('🔗 Acortando URL...');
-      shortFullLink = await shortenURL(fullLink);
-    } catch (error) {
-      console.warn('⚠️ No se pudo acortar la URL, usando original');
-    }
-    
-    // Establecer link completo para copiar y compartir
-    setTransporterLink(shortFullLink); // Link completo acortado
-    
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      // En desarrollo - necesita túnel público
-      setLocalIP("desarrollo-local"); // Flag para mostrar instrucciones especiales
-      console.log('🏠 Modo desarrollo - links establecidos')
-    } else {
-      // En producción - usar URL normal (ya accesible públicamente)
-      setLocalIP("produccion"); // Flag para mostrar que está listo
-      console.log('🌍 Modo producción - links establecidos')
-    }
-    
-    setShowTransporterModal(true);
+    await generateTransporterLinkForDay(catalanDay, currentItems)
   };
 
   const copyTransporterLink = () => {
@@ -1671,8 +1655,21 @@ export default function RouteEditor({
                           }
                         }}
                       >
-                        <div className="font-semibold text-center mb-3 capitalize text-gray-700">
-                          {dayName}
+                        <div className="text-center mb-3">
+                          <div className="font-semibold capitalize text-gray-700">{dayName}</div>
+                          {dayItems.length > 0 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                generateTransporterLinkForDay(catalanDay, dayItems)
+                              }}
+                              className="text-xs text-purple-600 hover:text-purple-800 mt-1 flex items-center justify-center gap-1 mx-auto"
+                              title="Generar link transportista para este día"
+                            >
+                              <Truck className="h-3 w-3" />
+                              Link
+                            </button>
+                          )}
                         </div>
                         <div className="space-y-1">
                           {/* Zona de drop al inicio */}

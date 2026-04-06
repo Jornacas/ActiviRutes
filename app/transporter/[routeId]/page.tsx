@@ -857,11 +857,17 @@ export default function TransporterApp() {
               address: item.direccion || '',
               activities: item.actividades || [],
               type: 'delivery' as const,
-              startTime: `${9 + Math.floor(index * 0.5)}:${index % 2 === 0 ? '00' : '30'}`,
+              startTime: item.startTime || '',
               totalStudents: 0,
               price: 0,
             }))
             setRouteItems(routeItemsFromProject)
+            // Restaurar progreso de entregas si existe
+            const savedDeliveryStatus = localStorage.getItem(`deliveryStatus_${routeId}`)
+            if (savedDeliveryStatus) {
+              setDeliveryStatus(JSON.parse(savedDeliveryStatus))
+              debugLog('✅ Progreso de entregas restaurado')
+            }
             debugLog(`✅ Ruta cargada desde proyecto: ${routeItemsFromProject.length} paradas`)
             return
           }
