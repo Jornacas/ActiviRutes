@@ -1401,6 +1401,17 @@ function DeliveryModule({
               items.sort((a: any, b: any) => (a.orden || 0) - (b.orden || 0))
             })
             setSavedReorganization(byDay)
+            // Restaurar selectedNextWeekCenters: detectar centros que no son de esta semana
+            const currentWeekNames = new Set(filteredPlans.map(p => p.school.name))
+            const adelantadosRestaurados = new Set<string>()
+            deliveries.forEach(d => {
+              if (!currentWeekNames.has(d.centro)) {
+                adelantadosRestaurados.add(d.centro)
+              }
+            })
+            if (adelantadosRestaurados.size > 0) {
+              setSelectedNextWeekCenters(adelantadosRestaurados)
+            }
             return
           }
         } catch (err) {
@@ -1429,30 +1440,58 @@ function DeliveryModule({
     setSavedReorganization(reorganizedItems)
   }, [])
 
-  // Agrupar centros por día: usa reorganización guardada si existe, si no distribución automática
+  // Agrupar centros por día: proyecto guardado es fuente de verdad, si no distribución automática
   const plansByDay = useMemo(() => {
     const grouped: { [key: string]: DeliveryPlan[] } = {}
     availableDays.forEach(day => { grouped[day] = [] })
 
-    // Si hay reorganización guardada, usarla
+    // Mapa rápido de filteredPlans y nextWeekPlans por nombre para enriquecer datos
+    const plansByName: { [name: string]: DeliveryPlan } = {}
+    filteredPlans.forEach(p => { plansByName[p.school.name] = p })
+    nextWeekPlans.forEach(p => { if (!plansByName[p.school.name]) plansByName[p.school.name] = p })
+
     if (savedReorganization) {
-      // Crear un mapa de centro -> día desde la reorganización
-      const centerToDay: { [name: string]: string } = {}
+      // savedReorganization es la fuente de verdad (viene del proyecto guardado o del editor)
+      // Incluye centros de esta semana Y adelantados, con orden correcto
+      const centrosEnReorganizacion = new Set<string>()
+
       Object.entries(savedReorganization).forEach(([day, items]) => {
-        // El día puede venir en catalán (Dimarts) o español (martes)
         const spanishDay = catalanToSpanish[day] || day.toLowerCase()
+        if (!grouped[spanishDay]) return // día no disponible (festivo)
+
         items.forEach((item: any) => {
           const name = item.id || item.name
-          if (name) centerToDay[name] = spanishDay
+          if (!name) return
+          centrosEnReorganizacion.add(name)
+
+          const existingPlan = plansByName[name]
+          if (existingPlan) {
+            // Enriquecer con datos actuales del CSV
+            grouped[spanishDay].push({ ...existingPlan, deliveryDay: day })
+          } else {
+            // Centro adelantado o no en filteredPlans — crear plan sintético
+            grouped[spanishDay].push({
+              school: {
+                name: name,
+                address: item.address || '',
+                courseStart: new Date(),
+                activities: {}
+              },
+              deliveryDate: new Date(),
+              deliveryDay: day,
+              activities: (item.activities || []).map((a: any) => ({
+                day: day, turn: '', activity: typeof a === 'string' ? a : a.activity || ''
+              })),
+              consolidated: false,
+              reason: 'adelantado'
+            })
+          }
         })
       })
 
+      // Añadir centros de filteredPlans que NO están en la reorganización (centros nuevos)
       filteredPlans.forEach(plan => {
-        const assignedDay = centerToDay[plan.school.name]
-        if (assignedDay && grouped[assignedDay]) {
-          grouped[assignedDay].push(plan)
-        } else {
-          // Centro no está en la reorganización (nuevo?), usar lógica por defecto
+        if (!centrosEnReorganizacion.has(plan.school.name)) {
           const spanishDay = catalanToSpanish[plan.deliveryDay]
           if (spanishDay && grouped[spanishDay]) {
             grouped[spanishDay].push(plan)
@@ -1474,7 +1513,7 @@ function DeliveryModule({
     }
 
     return grouped
-  }, [filteredPlans, availableDays, savedReorganization])
+  }, [filteredPlans, nextWeekPlans, availableDays, savedReorganization])
 
   return (
     <div className="space-y-6">
@@ -1691,16 +1730,11 @@ function DeliveryModule({
           <Button
             size="sm"
             onClick={async () => {
-              if (filteredPlans.length === 0) return
+              if (filteredPlans.length === 0 && selectedNextWeekCenters.size === 0) return
               try {
-                if (activeProject) {
-                  // Actualizar proyecto existente
-                  await updateProject(activeProject.id, {
-                    actividades: selectedActivities,
-                    festivos: holidays.map(h => format(h.date, 'yyyy-MM-dd')),
-                    modo: deliveryType as 'trimestral' | 'inicio-curso',
-                  })
-                  // Guardar entregas (distribución actual)
+                // Construir entregas: plansByDay ya incluye adelantados si vienen de savedReorganization
+                // Pero si hay adelantados recién seleccionados (no guardados aún), añadirlos también
+                const buildDeliveries = () => {
                   const deliveries = Object.entries(plansByDay).flatMap(([day, plans]) => {
                     const catalanDay = dayNameMapping[day]
                     return plans.map((plan, index) => ({
@@ -1711,6 +1745,35 @@ function DeliveryModule({
                       orden: index + 1,
                     }))
                   })
+                  // Añadir adelantados seleccionados que no estén ya en plansByDay
+                  const centrosYaIncluidos = new Set(deliveries.map(d => d.centro))
+                  const adelantados = nextWeekPlans
+                    .filter(p => selectedNextWeekCenters.has(p.school.name) && !centrosYaIncluidos.has(p.school.name))
+                  if (adelantados.length > 0) {
+                    // Asignar al primer día disponible (se reorganizarán en el editor)
+                    const firstDay = dayNameMapping[availableDays[0]] || 'Dilluns'
+                    const baseIndex = deliveries.filter(d => d.diaPlanificado === firstDay).length
+                    adelantados.forEach((plan, i) => {
+                      deliveries.push({
+                        centro: plan.school.name,
+                        direccion: plan.school.address,
+                        diaPlanificado: firstDay,
+                        actividades: plan.activities.map(a => a.activity),
+                        orden: baseIndex + i + 1,
+                      })
+                    })
+                  }
+                  return deliveries
+                }
+
+                if (activeProject) {
+                  // Actualizar proyecto existente
+                  await updateProject(activeProject.id, {
+                    actividades: selectedActivities,
+                    festivos: holidays.map(h => format(h.date, 'yyyy-MM-dd')),
+                    modo: deliveryType as 'trimestral' | 'inicio-curso',
+                  })
+                  const deliveries = buildDeliveries()
                   await saveProjectDeliveries(activeProject.id, deliveries)
                   setProjectSaved(true)
                   alert('Proyecto actualizado')
@@ -1725,17 +1788,7 @@ function DeliveryModule({
                     festivos: holidays.map(h => format(h.date, 'yyyy-MM-dd')),
                   })
                   if (projectId) {
-                    // Guardar entregas
-                    const deliveries = Object.entries(plansByDay).flatMap(([day, plans]) => {
-                      const catalanDay = dayNameMapping[day]
-                      return plans.map((plan, index) => ({
-                        centro: plan.school.name,
-                        direccion: plan.school.address,
-                        diaPlanificado: catalanDay,
-                        actividades: plan.activities.map(a => a.activity),
-                        orden: index + 1,
-                      }))
-                    })
+                    const deliveries = buildDeliveries()
                     await saveProjectDeliveries(projectId, deliveries)
                     // Recargar proyecto
                     const projects = await getProjects('entrega')
