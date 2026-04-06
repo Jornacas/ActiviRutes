@@ -26,6 +26,7 @@ import {
   ExternalLink,
   Printer,
   CheckCircle,
+  Star,
 } from "lucide-react"
 
 // Tipos para el editor de rutas
@@ -555,7 +556,7 @@ export default function RouteEditor({
   const [routeName, setRouteName] = useState("")
   const [selectedSavedRoute, setSelectedSavedRoute] = useState<string>("")
   const [isSaving, setIsSaving] = useState(false)
-  const [viewMode, setViewMode] = useState<"day" | "week">("day")
+  const [viewMode, setViewMode] = useState<"day" | "week">("week")
   const [weeklyPlansByDay, setWeeklyPlansByDay] = useState<{[key: string]: RouteItem[]}>({})
   const [draggedItem, setDraggedItem] = useState<RouteItem | null>(null)
   const [draggedFromDay, setDraggedFromDay] = useState<string | null>(null)
@@ -1104,6 +1105,32 @@ export default function RouteEditor({
     console.log(`🗓️ Cambiando a día: ${dayName}`);
   };
 
+  // Toggle prioridad de un centro (lo mueve al inicio del día)
+  const togglePriority = (itemId: string) => {
+    const dayMapping: { [k: string]: string } = {
+      'lunes': 'Dilluns', 'martes': 'Dimarts', 'miércoles': 'Dimecres',
+      'jueves': 'Dijous', 'viernes': 'Divendres'
+    }
+    const catalanDay = dayMapping[selectedDayInDayView.toLowerCase()] || selectedDayInDayView
+
+    setWeeklyPlansByDay(prev => {
+      const dayItems = [...(prev[catalanDay] || [])]
+      const itemIndex = dayItems.findIndex(i => i.id === itemId)
+      if (itemIndex === -1) return prev
+
+      const item = dayItems[itemIndex]
+      const newPriority = !item.priority
+      dayItems[itemIndex] = { ...item, priority: newPriority }
+
+      // Reordenar: prioritarios primero, manteniendo orden relativo
+      const priorityItems = dayItems.filter(i => i.priority)
+      const normalItems = dayItems.filter(i => !i.priority)
+
+      return { ...prev, [catalanDay]: [...priorityItems, ...normalItems] }
+    })
+    setIsDirty(true)
+  };
+
   // Obtener lista de días disponibles
   const getAvailableDays = () => {
     const allDays = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes'];
@@ -1358,13 +1385,19 @@ export default function RouteEditor({
                               handleDragStart(item)
                             }}
                             onDragEnd={handleDragEnd}
-                            className={`flex items-center p-3 bg-white rounded-lg border transition-all ${
+                            className={`flex items-center p-3 rounded-lg border transition-all ${
+                              item.priority
+                                ? 'bg-amber-50 border-amber-300 ring-1 ring-amber-200'
+                                : 'bg-white'
+                            } ${
                               isDragging
                                 ? 'opacity-30 scale-95 border-blue-300'
                                 : 'hover:shadow-sm cursor-move hover:border-blue-200'
                             }`}
                           >
-                            <div className="bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center mr-3 text-sm font-bold flex-shrink-0">
+                            <div className={`rounded-full w-7 h-7 flex items-center justify-center mr-3 text-sm font-bold flex-shrink-0 ${
+                              item.priority ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white'
+                            }`}>
                               {index + 1}
                             </div>
 
@@ -1384,8 +1417,24 @@ export default function RouteEditor({
                               </div>
                             </div>
 
-                            <div className="text-right text-xs text-gray-500 flex-shrink-0">
-                              <div className="text-blue-600 font-medium">{item.activities?.join(', ')}</div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <div className="text-right text-xs">
+                                <div className="text-blue-600 font-medium">{item.activities?.join(', ')}</div>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  togglePriority(item.id)
+                                }}
+                                className={`p-1 rounded transition-colors ${
+                                  item.priority
+                                    ? 'text-amber-500 hover:text-amber-600'
+                                    : 'text-gray-300 hover:text-amber-400'
+                                }`}
+                                title={item.priority ? 'Quitar prioridad' : 'Marcar como prioritario'}
+                              >
+                                <Star className={`h-4 w-4 ${item.priority ? 'fill-amber-500' : ''}`} />
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -1654,19 +1703,26 @@ export default function RouteEditor({
                                     handleDragStart(item)
                                   }}
                                   onDragEnd={handleDragEnd}
-                                  className={`p-2 bg-white rounded border transition-all relative ${
-                                    isDragging 
-                                      ? 'opacity-30 scale-95 cursor-grabbing border-blue-300' 
+                                  className={`p-2 rounded border transition-all relative ${
+                                    item.priority
+                                      ? 'bg-amber-50 border-amber-300'
+                                      : 'bg-white'
+                                  } ${
+                                    isDragging
+                                      ? 'opacity-30 scale-95 cursor-grabbing border-blue-300'
                                       : 'cursor-move hover:shadow-md hover:border-blue-200'
                                   }`}
                                 >
                                   {/* Indicador de orden */}
                                   <div className={`absolute -left-2 -top-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold z-10 shadow-sm ${
-                                    isDragging ? 'bg-gray-400' : 'bg-blue-600 text-white'
+                                    isDragging ? 'bg-gray-400' : item.priority ? 'bg-amber-500 text-white' : 'bg-blue-600 text-white'
                                   }`}>
                                     {index + 1}
                                   </div>
-                                  
+                                  {item.priority && (
+                                    <Star className="absolute -right-1 -top-1 h-3.5 w-3.5 text-amber-500 fill-amber-500 z-10" />
+                                  )}
+
                                   <div className="text-sm font-medium text-gray-900 truncate">
                                     {schoolDisplayName}
                                   </div>

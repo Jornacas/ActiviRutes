@@ -14,6 +14,7 @@ export interface RouteItem {
   monitor?: string
   type: "delivery" | "pickup"
   originalIndex?: number
+  priority?: boolean
 }
 
 interface InteractiveMapProps {
