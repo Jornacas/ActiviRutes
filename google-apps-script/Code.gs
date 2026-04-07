@@ -258,6 +258,53 @@ function doPost(e) {
   }
 }
 
+// Headers canónicos de la hoja ENTREGAS (orden importante).
+// Las primeras 11 columnas las envía el móvil; las 2 últimas las añade GAS
+// con las URLs de Drive tras subir las imágenes.
+const ENTREGAS_HEADERS = [
+  'FECHA', 'HORA', 'RUTA_ID', 'ESCUELA', 'DIRECCION', 'ACTIVIDADES',
+  'RECEPTOR', 'NOTAS', 'TIENE_FIRMA', 'TIENE_FOTO', 'LINK_INFORME',
+  'URL_FOTO', 'URL_FIRMA'
+];
+
+// Asegura que la hoja ENTREGAS tiene los headers correctos.
+// Si la fila 1 está vacía, los crea. Si faltan URL_FOTO/URL_FIRMA, los añade
+// al final sin tocar el resto de columnas.
+function ensureEntregasHeaders(sheet) {
+  try {
+    const lastCol = Math.max(sheet.getLastColumn(), 1);
+    const currentHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h){ return String(h || '').trim(); });
+
+    // Si la hoja está vacía (sin headers), escribimos los canónicos
+    const hasAnyHeader = currentHeaders.some(function(h){ return h !== ''; });
+    if (!hasAnyHeader) {
+      sheet.getRange(1, 1, 1, ENTREGAS_HEADERS.length).setValues([ENTREGAS_HEADERS]);
+      logToSheet('🆕 Headers ENTREGAS creados desde cero');
+      return ENTREGAS_HEADERS.slice();
+    }
+
+    // Si faltan URL_FOTO o URL_FIRMA, añadirlos
+    let updated = currentHeaders.slice();
+    let changed = false;
+    if (updated.indexOf('URL_FOTO') === -1) {
+      updated.push('URL_FOTO');
+      changed = true;
+    }
+    if (updated.indexOf('URL_FIRMA') === -1) {
+      updated.push('URL_FIRMA');
+      changed = true;
+    }
+    if (changed) {
+      sheet.getRange(1, 1, 1, updated.length).setValues([updated]);
+      logToSheet('🔧 Headers ENTREGAS extendidos con URL_FOTO/URL_FIRMA');
+    }
+    return updated;
+  } catch (e) {
+    logToSheet('❌ ensureEntregasHeaders error', e.toString());
+    return null;
+  }
+}
+
 function addDeliveryToSheet(rowData, images) {
   try {
     logToSheet('🚨 INICIO addDeliveryToSheet');
@@ -305,9 +352,6 @@ function addDeliveryToSheet(rowData, images) {
       }
     }
 
-    // Agregar URLs de imágenes al final del array de datos
-    const finalRowData = [...rowData, photoUrl, signatureUrl];
-
     // Guardar en Google Sheets
     const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
     const sheet = spreadsheet.getSheetByName(SHEET_NAME);
@@ -316,12 +360,28 @@ function addDeliveryToSheet(rowData, images) {
       throw new Error(`No se encontró la hoja "${SHEET_NAME}"`);
     }
 
-    logToSheet('🚨 Insertando en Sheets con URLs', { 
-      photoUrl, 
-      signatureUrl,
-      totalColumns: finalRowData.length 
+    // 🔧 Asegurar que los headers están bien antes de insertar la fila
+    // (esto soluciona que la API leyera vacío URL_FOTO/URL_FIRMA porque
+    // GAS añadía las URLs en columnas sin nombre).
+    const headers = ensureEntregasHeaders(sheet) || ENTREGAS_HEADERS.slice();
+
+    // Construir la fila alineada a los headers actuales
+    const finalRowData = headers.map(function(h) {
+      const idx = ENTREGAS_HEADERS.indexOf(h);
+      if (h === 'URL_FOTO') return photoUrl;
+      if (h === 'URL_FIRMA') return signatureUrl;
+      // Para las primeras 11 columnas usamos el rowData enviado por el móvil
+      if (idx >= 0 && idx < rowData.length) return rowData[idx];
+      return '';
     });
-    
+
+    logToSheet('🚨 Insertando en Sheets con URLs', {
+      photoUrl,
+      signatureUrl,
+      totalColumns: finalRowData.length,
+      headers: headers
+    });
+
     sheet.appendRow(finalRowData);
 
     const timestamp = new Date().toISOString();

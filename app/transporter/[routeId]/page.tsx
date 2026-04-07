@@ -524,6 +524,11 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData, images?: {
 
       debugLog("📤 Enviando a API endpoint Next.js:", apiUrl)
 
+      // ⏱️ Timeout de 60s — sin esto, en redes móviles flojas la promesa
+      // se quedaba colgada para siempre y la UI mostraba el spinner sin fin.
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 60000)
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -532,8 +537,9 @@ const sendDeliveryToGoogleSheets = async (deliveryData: DeliveryData, images?: {
         body: JSON.stringify({
           data: rowData,
           images: images || {} // Incluir imágenes
-        })
-      })
+        }),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId))
 
       debugLog("📡 Response status:", response.status)
 
@@ -1209,44 +1215,47 @@ export default function TransporterApp() {
       addDebugLog('⚠️ Continuando sin evento Admin...')
     }
 
-    // Limpiar formulario y cerrar
+    // Limpiar formulario y cerrar inmediatamente — la entrega ya está
+    // registrada localmente; lo de Sheets corre en background.
     setExpandedItemId(null)
     setSignatures(prev => ({ ...prev, [itemId]: '' }))
     setPhotos(prev => ({ ...prev, [itemId]: '' }))
 
-    // Enviar a Google Sheets en segundo plano (MODIFICADO: incluir imágenes y link del informe)
+    // 📤 Envío a Google Sheets en background (NO bloquea cerrar la entrega).
+    // Si Sheets falla o tarda, la UI ya muestra la entrega como completada;
+    // el spinner de "subiendo" desaparece cuando termine, sea exitoso o no.
     setSendingToSheets(itemId)
-    try {
-      addDebugLog('📤 Enviando datos a Google Sheets con imágenes...')
-      
-      // Crear datos para Google Sheets con link del informe
-      const deliveryDataWithReport = {
-        ...newDeliveryData,
-        reportUrl: `${window.location.origin}/informe/${deliveryId}` // Link del informe para Admin
+    ;(async () => {
+      try {
+        addDebugLog('📤 Enviando datos a Google Sheets con imágenes...')
+
+        const deliveryDataWithReport = {
+          ...newDeliveryData,
+          reportUrl: `${window.location.origin}/informe/${deliveryId}`
+        }
+
+        const images: { signature?: string; photo?: string } = {}
+        if (newDeliveryData.signature && newDeliveryData.signature.startsWith('data:image')) {
+          images.signature = newDeliveryData.signature
+          addDebugLog('📝 Incluyendo firma en envío a Sheets')
+        }
+        if (newDeliveryData.photoUrl && newDeliveryData.photoUrl.startsWith('data:image')) {
+          images.photo = newDeliveryData.photoUrl
+          addDebugLog('📸 Incluyendo foto en envío a Sheets')
+        }
+
+        const success = await sendDeliveryToGoogleSheets(deliveryDataWithReport, images)
+        if (success) {
+          addDebugLog("✅ Entrega registrada en Google Sheets con imágenes")
+        } else {
+          addDebugLog("⚠️ No se pudo registrar en Google Sheets, guardado solo local")
+        }
+      } catch (error) {
+        addDebugLog(`❌ Error enviando a Sheets (background): ${error}`)
+      } finally {
+        setSendingToSheets(null)
       }
-      
-      // Preparar imágenes para envío
-      const images = {}
-      if (newDeliveryData.signature && newDeliveryData.signature.startsWith('data:image')) {
-        images.signature = newDeliveryData.signature
-        addDebugLog('📝 Incluyendo firma en envío a Sheets')
-      }
-      if (newDeliveryData.photoUrl && newDeliveryData.photoUrl.startsWith('data:image')) {
-        images.photo = newDeliveryData.photoUrl
-        addDebugLog('📸 Incluyendo foto en envío a Sheets')
-      }
-      
-      const success = await sendDeliveryToGoogleSheets(deliveryDataWithReport, images)
-      if (success) {
-        addDebugLog("✅ Entrega registrada en Google Sheets con imágenes y link del informe")
-      } else {
-        addDebugLog("⚠️ No se pudo registrar en Google Sheets, pero se guardó localmente")
-      }
-    } catch (error) {
-      addDebugLog(`❌ Error enviando a Sheets: ${error}`)
-    } finally {
-      setSendingToSheets(null)
-    }
+    })()
   } catch (error) {
     addDebugLog(`❌ ERROR CRÍTICO en handleDeliver: ${error}`)
     addDebugLog(`📋 Detalles del error: ${JSON.stringify(error)}`)

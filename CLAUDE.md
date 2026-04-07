@@ -313,6 +313,35 @@ Key interfaces are defined across multiple files:
 
 ## Recent Development History
 
+### April 2026 - Unified Save/Load Model + Transportista Multi-day
+
+**Problem solved:** El sistema tenía múltiples flujos de guardado desconectados (gestión, editor vista semana, editor vista día, transportista). Adelantados de la siguiente semana se perdían al refrescar, los campos `startTime`/`turn`/`priority` no persistían, y el transportista solo cargaba un día por enlace.
+
+**Architecture changes:**
+1. ✅ **Sheets como única fuente de verdad** para datos de proyecto:
+   - Nuevas columnas en `ProyectoEntregas`: `HoraInicio` (11), `Turno` (12), `Prioritario` (13)
+   - `initProjectSheets()`, `saveProjectDeliveries()`, `getProjectDeliveries()` y `getProjectRoute()` actualizados a 13 columnas
+   - GAS desplegado en versión 62
+2. ✅ **`plansByDay` reescrito** (`app/page.tsx`):
+   - Ahora usa `savedReorganization` como fuente de verdad en lugar de filtro
+   - Crea planes sintéticos para adelantados que no están en `filteredPlans`
+   - Preserva `priority`, `startTime`, `turn` desde el guardado
+3. ✅ **`buildDeliveries()` extendido**: captura `startTime`/`turn` desde la primera actividad, `priority` desde el plan, e incluye adelantados seleccionados de `nextWeekPlans`
+4. ✅ **Marcado de prioridad** en editor de rutas: botón Star, indicadores visuales, persistido a Sheets
+
+**Transportista multi-día (`app/transporter/[routeId]/page.tsx`):**
+1. ✅ **Selector de día** en cabecera: muestra todos los días del proyecto con contador y ✓ verde si completados
+2. ✅ **routeId estable** basado en `projectId+catalanDay` (ya no usa timestamp)
+3. ✅ **Progreso persistente** vía `deliveryStatus_${projectId}` en localStorage — al cerrar y reabrir el link el avance no se pierde
+4. ✅ **Link por día** desde la vista semana del editor (botón "Link" en cada cabecera)
+5. ✅ **`parseStartTime()`**: convierte el formato ISO de Google Sheets (`1899-12-30T16:20:39.000Z`) a `HH:MM`
+
+**Geocoding mejorado:**
+1. ✅ **Migración Nominatim → Google Geocoding API** (`app/api/geocode/route.ts`)
+2. ✅ **Nombre de escuela en query** (`components/route-map-panel.tsx` `improveAddress()`): envía "Escola Catalonia, Perú, 195, Barcelona" para mejor precisión en direcciones cortas
+
+**Commits relevantes:** `3f9e87b`, `0a71b3f`, `e76efbf`, `ed7b5ac`, `5ceedaa`
+
 ### September 2025 - Complete Delivery System Implementation
 
 **Major Features Added:**
