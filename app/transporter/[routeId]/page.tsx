@@ -50,6 +50,8 @@ interface RouteItem {
   monitor?: string
   type: "delivery" | "pickup"
   originalIndex?: number
+  numBultos?: number | null
+  denominacionBultos?: string
 }
 
 // Configuración de Google Sheets (misma que en la app principal)
@@ -641,6 +643,7 @@ export default function TransporterApp() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [projectId, setProjectId] = useState<string | null>(null)
+  const [isPickup, setIsPickup] = useState(false) // modo recogida (vs entrega)
   const deliveryStatusKey = projectId ? `deliveryStatus_${projectId}` : `deliveryStatus_${routeId}`
   const [isEditing, setIsEditing] = useState(false)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
@@ -867,6 +870,8 @@ export default function TransporterApp() {
       const urlParams = new URLSearchParams(window.location.search)
       const urlProjectId = urlParams.get('projectId')
       const dia = urlParams.get('dia')
+      const urlMode = urlParams.get('mode')
+      if (urlMode === 'recogida') setIsPickup(true)
       if (urlProjectId) setProjectId(urlProjectId)
       const projectId = urlProjectId
 
@@ -892,6 +897,8 @@ export default function TransporterApp() {
                 day: day,
                 totalStudents: 0,
                 price: 0,
+                numBultos: item.numBultos ?? null,
+                denominacionBultos: item.denominacionBultos || '',
               })
             })
             setAllItemsByDay(byDay)
@@ -955,7 +962,9 @@ export default function TransporterApp() {
               type: (decodedData.t === 'd' ? 'delivery' : decodedData.t === 'p' ? 'pickup' : decodedData.type) || "delivery",
               startTime: parseStartTime(item.startTime || ''),
               totalStudents: 0,
-              price: 0
+              price: 0,
+              numBultos: item.numBultos ?? null,
+              denominacionBultos: item.denominacionBultos || ''
             }
           })
           
@@ -1376,7 +1385,7 @@ export default function TransporterApp() {
       <div className="bg-white rounded-lg shadow-sm p-4 mb-4 sticky top-0 z-10">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-800">🚚 Ruta del Transportista</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-800">🚚 Ruta del Transportista{isPickup ? ' · Recogida' : ''}</h1>
             <p className="text-sm text-gray-600">ID: <span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs">{routeId}</span></p>
             
             {/* Panel de debug móvil */}
@@ -1528,7 +1537,7 @@ export default function TransporterApp() {
                 <div className="flex items-center gap-2">
                   {isDelivered ? (
                     <Badge className="bg-green-600 text-white text-xs">
-                      <CheckCircle className="h-3 w-3 mr-1" /> Entregado
+                      <CheckCircle className="h-3 w-3 mr-1" /> {isPickup ? 'Recogido' : 'Entregado'}
                     </Badge>
                   ) : (
                     <Badge variant="secondary" className="text-xs">Pendiente</Badge>
@@ -1548,9 +1557,17 @@ export default function TransporterApp() {
                     </p>
                   )}
                   <p className="text-gray-700 flex items-start">
-                    <Package className="h-4 w-4 mr-2 text-orange-500 mt-0.5 flex-shrink-0" /> 
+                    <Package className="h-4 w-4 mr-2 text-orange-500 mt-0.5 flex-shrink-0" />
                     Material: <span className="font-medium ml-1">{item.activities.join(", ")}</span>
                   </p>
+                  {(item.numBultos != null || item.denominacionBultos) && (
+                    <p className="text-gray-700 flex items-start">
+                      <Package className="h-4 w-4 mr-2 text-amber-600 mt-0.5 flex-shrink-0" />
+                      Bultos: <span className="font-medium ml-1">
+                        {item.numBultos != null ? item.numBultos : ''}{item.denominacionBultos ? ` ${item.denominacionBultos}` : ''}
+                      </span>
+                    </p>
+                  )}
                 </div>
 
                 {!isDelivered && (
@@ -1562,14 +1579,14 @@ export default function TransporterApp() {
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                       >
                         <Package className="h-4 w-4 mr-2" />
-                        Procesar Entrega
+                        {isPickup ? 'Procesar Recogida' : 'Procesar Entrega'}
                       </Button>
                     ) : (
                       // Vista expandida - formulario completo
                       <div className="space-y-4">
                         {/* Información de la escuela */}
                         <div className="bg-blue-50 p-3 rounded border-l-4 border-blue-400">
-                          <h4 className="font-medium text-blue-900 mb-1">📦 Entrega en {item.name}</h4>
+                          <h4 className="font-medium text-blue-900 mb-1">📦 {isPickup ? 'Recogida' : 'Entrega'} en {item.name}</h4>
                           <p className="text-sm text-blue-800">Material: {item.activities.join(", ")}</p>
                           <p className="text-xs text-blue-700 mt-1">{item.address}</p>
                         </div>
@@ -1595,7 +1612,7 @@ export default function TransporterApp() {
                           </label>
                           <Textarea 
                             id={`notes-${item.id}`} 
-                            placeholder="Comentarios sobre la entrega, ubicación del material, etc." 
+                            placeholder={isPickup ? "Comentarios sobre la recogida, estado del material, etc." : "Comentarios sobre la entrega, ubicación del material, etc."}
                             className="text-sm h-16"
                           />
                         </div>
@@ -1670,7 +1687,7 @@ export default function TransporterApp() {
                             ) : (
                               <>
                                 <Save className="h-4 w-4 mr-2" />
-                                Confirmar Entrega
+                                {isPickup ? 'Confirmar Recogida' : 'Confirmar Entrega'}
                               </>
                             )}
                           </Button>

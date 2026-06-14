@@ -1023,14 +1023,17 @@ export default function RouteEditor({
         name: item.name,
         address: item.address,
         activities: item.activities,
-        startTime: item.startTime || '09:00'
+        startTime: item.startTime || '09:00',
+        numBultos: item.numBultos ?? null,
+        denominacionBultos: item.denominacionBultos || ''
       }))
     };
 
     const fullEncoded = btoa(unescape(encodeURIComponent(JSON.stringify(fullSummary))));
     const baseUrl = `${window.location.origin}/transporter/${stableId}`;
     const projectParams = config.projectId ? `&projectId=${config.projectId}&dia=${encodeURIComponent(catalanDay)}` : ''
-    const fullLink = `${baseUrl}?data=${fullEncoded}${projectParams}`;
+    const modeParam = config.mode === 'recogida' ? '&mode=recogida' : ''
+    const fullLink = `${baseUrl}?data=${fullEncoded}${projectParams}${modeParam}`;
 
     let shortLink = fullLink;
     try {
