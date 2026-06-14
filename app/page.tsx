@@ -1667,15 +1667,37 @@ function DeliveryModule({
       })
     }
 
-    // Recogidas: quitar de la vista de pendientes los centros ya recogidos
-    if (isPickup && pickupFilter !== 'historico') {
+    // Recogidas: aplicar el filtro (disponibles/proximas/historico) a la vista por día,
+    // incluso con proyecto cargado. Usa el FINAL CURS real de cada centro (deliverySchools),
+    // no el del plan, que puede ser sintético (courseStart = hoy) en centros guardados.
+    if (isPickup) {
+      const todayEnd = new Date()
+      todayEnd.setHours(23, 59, 59, 999)
+      const anchorByName: { [name: string]: Date } = {}
+      deliverySchools.forEach(s => { if (s.courseStart) anchorByName[s.name] = s.courseStart })
       Object.keys(grouped).forEach(day => {
-        grouped[day] = grouped[day].filter(p => !pickedUp[p.school.name])
+        grouped[day] = grouped[day].filter(p => {
+          const name = p.school.name
+          const isRecogido = !!pickedUp[name]
+          if (pickupFilter === 'historico') return isRecogido
+          if (isRecogido) return false // recogido → fuera de pendientes
+          const fin = anchorByName[name]
+          if (!fin || isNaN(fin.getTime())) return pickupFilter !== 'proximas'
+          if (pickupFilter === 'disponibles') return fin.getTime() <= todayEnd.getTime()
+          if (pickupFilter === 'proximas') return fin.getTime() > todayEnd.getTime()
+          return true // 'todas'
+        })
       })
     }
 
     return grouped
-  }, [filteredPlans, nextWeekPlans, availableDays, savedReorganization, isPickup, pickupFilter, pickedUp])
+  }, [filteredPlans, nextWeekPlans, availableDays, savedReorganization, isPickup, pickupFilter, pickedUp, deliverySchools])
+
+  // Total de centros realmente mostrados (refleja el filtro y el proyecto cargado)
+  const totalPlanned = useMemo(
+    () => Object.values(plansByDay).reduce((n, arr) => n + arr.length, 0),
+    [plansByDay]
+  )
 
   return (
     <div className="space-y-6">
@@ -1796,7 +1818,7 @@ function DeliveryModule({
         <div className="flex items-center gap-4">
           <Truck className="h-5 w-5 text-blue-600 flex-shrink-0" />
           <div className="text-sm">
-            <span className="font-semibold text-blue-800">{filteredPlans.length} centros</span>
+            <span className="font-semibold text-blue-800">{totalPlanned} centros</span>
             <span className="text-blue-600"> repartidos en </span>
             <span className="font-semibold text-blue-800">{availableDays.length} días</span>
             <span className="text-blue-600"> &middot; Semana del </span>
@@ -2081,7 +2103,7 @@ function DeliveryModule({
       </div>
 
       {/* Tabs por día */}
-      {filteredPlans.length > 0 ? (
+      {(filteredPlans.length > 0 || totalPlanned > 0) ? (
         <Card>
           <CardContent className="pt-6">
             <Tabs value={selectedPlanningDay} onValueChange={setSelectedPlanningDay} className="w-full">
@@ -2099,7 +2121,7 @@ function DeliveryModule({
                         isHoliday && "opacity-40 line-through"
                       )}
                     >
-                      <span className="capitalize text-sm">{day}</span>
+                      <span className="capitalize text-sm">{dayNameMapping[day]}</span>
                       <span className="text-xs text-gray-500">
                         {isHoliday ? "festivo" : count > 0 ? `${count} centros` : "—"}
                       </span>
