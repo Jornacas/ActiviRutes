@@ -45,6 +45,10 @@ interface RouteConfig {
   title: string
   items: RouteItem[]
   type: "delivery" | "pickup"
+  // Modo de negocio para etiquetas (independiente de `type`, que rige la agrupación).
+  // El flujo semanal de recogidas usa type:"delivery" para la agrupación por día,
+  // pero mode:"recogida" para mostrar los textos correctos.
+  mode?: "entrega" | "recogida"
   selectedDay?: string
   allPlans?: any[]
   onApplyChanges?: (reorganizedItems: { [day: string]: RouteItem[] }) => void
@@ -1146,15 +1150,15 @@ export default function RouteEditor({
               </Button>
               <div>
                 <h2 className="text-2xl font-bold flex items-center">
-                  {config.type === "delivery" ? (
-                    <Truck className="h-6 w-6 mr-2" />
-                  ) : (
+                  {config.mode === "recogida" || config.type === "pickup" ? (
                     <Package className="h-6 w-6 mr-2" />
+                  ) : (
+                    <Truck className="h-6 w-6 mr-2" />
                   )}
                   Editor de Rutas - {config.title}
                 </h2>
                 <p className="text-gray-600 mt-1">
-                  {config.items.length} centros • {config.type === "delivery" ? "Entregas" : "Recogidas"}
+                  {config.items.length} centros • {config.mode === "recogida" || config.type === "pickup" ? "Recogidas" : "Entregas"}
                 </p>
               </div>
             </div>

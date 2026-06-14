@@ -624,6 +624,77 @@ function processDeliveryData(sheetData: GoogleSheetRow[]): DeliverySchool[] {
   return result
 }
 
+// Parsear fecha de curso ("DD/MM/YYYY" o ISO) a Date; null si no se puede.
+function parseCourseDate(str: string): Date | null {
+  if (!str || !str.trim()) return null
+  try {
+    if (str.includes("/")) {
+      const parts = str.split("/")
+      if (parts.length !== 3) return null
+      const day = Number.parseInt(parts[0])
+      const month = Number.parseInt(parts[1]) - 1
+      let year = Number.parseInt(parts[2])
+      if (year < 100) year += 2000
+      const d = new Date(year, month, day)
+      return isNaN(d.getTime()) ? null : d
+    }
+    if (str.includes("-")) {
+      const d = new Date(str)
+      return isNaN(d.getTime()) ? null : d
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+// Procesar datos para recogidas: mismo shape que entregas (DeliverySchool) pero
+// anclado en FINAL CURS. El motor generateDeliveryPlan usa `courseStart` como ancla
+// de la semana de elegibilidad; para recogidas ese ancla es FINAL CURS, lo que aplica
+// directamente la regla "el material solo se recoge a partir de FINAL CURS".
+function processPickupData(sheetData: GoogleSheetRow[]): DeliverySchool[] {
+  const schoolsMap = new Map<string, DeliverySchool>()
+
+  sheetData.forEach((row) => {
+    const name = row["ESCOLA"] || ""
+    const address = row["ADREÇA"] || row["UBICACIÓ"] || ""
+    const day = row["DIA"] || ""
+    const activity = row["ACTIVITAT"] || ""
+    const turn = row["TORN"] || ""
+    const courseEndStr = row["FINAL CURS"] || ""
+    const location = row["ADREÇA"] || row["UBICACIÓ"] || ""
+    const startTime = row["HORA INICI"] || ""
+    const totalStudents = Number.parseInt(row["TOTAL ALUMNES"] || "0") || 0
+
+    if (!name || !day || !activity) return
+
+    // Ancla de recogida = FINAL CURS. Sin fecha → hoy (elegible ya).
+    const pickupAnchor = parseCourseDate(courseEndStr) || new Date()
+
+    if (!schoolsMap.has(name)) {
+      schoolsMap.set(name, {
+        name,
+        address: address || `Escola ${name}`,
+        location,
+        courseStart: pickupAnchor, // ancla = FINAL CURS
+        activities: {},
+      })
+    }
+
+    const school = schoolsMap.get(name)!
+    if (!school.activities[day]) school.activities[day] = []
+    school.activities[day].push({
+      turn,
+      activity,
+      courseStart: pickupAnchor, // ancla = FINAL CURS
+      startTime,
+      totalStudents,
+    })
+  })
+
+  return Array.from(schoolsMap.values())
+}
+
 // Funciones auxiliares existentes
 function getLastDay(days: string[]): string {
   const dayOrder = ["Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres"]
@@ -1209,10 +1280,18 @@ const dayOrder: { [key: string]: number } = {
 function DeliveryModule({
   deliverySchools,
   onOpenRouteEditor,
+  mode = "entrega",
 }: {
   deliverySchools: DeliverySchool[]
-  onOpenRouteEditor: (allPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter?: number, additionalPlans?: DeliveryPlan[], onReorganizeCb?: (items: any) => void, projectId?: string) => void
+  onOpenRouteEditor: (allPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter?: number, additionalPlans?: DeliveryPlan[], onReorganizeCb?: (items: any) => void, projectId?: string, mode?: 'entrega' | 'recogida') => void
+  mode?: 'entrega' | 'recogida'
 }) {
+  // Modo entrega/recogida: el componente es el mismo, cambian tipo de proyecto y etiquetas.
+  const isPickup = mode === 'recogida'
+  const tipo: 'entrega' | 'recogida' = mode
+  const L = isPickup
+    ? { Noun: 'Recogidas', verbPast: 'recogida', weekLabel: 'Semana de recogida', planTitle: 'Plan de Recogidas', csvPrefix: 'recogidas', emptyTitle: 'No hay recogidas programadas', routeDone: 'Ruta recogida' }
+    : { Noun: 'Entregas', verbPast: 'entregada', weekLabel: 'Semana de entrega', planTitle: 'Plan de Entregas', csvPrefix: 'entregas', emptyTitle: 'No hay entregas programadas', routeDone: 'Ruta entregada' }
   const [selectedWeek, setSelectedWeek] = useState<Date>(new Date())
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("trimestral")
   const [holidays, setHolidays] = useState<Holiday[]>([])
@@ -1319,7 +1398,7 @@ function DeliveryModule({
   useEffect(() => {
     const loadProject = async () => {
       try {
-        const projects = await getProjects('entrega')
+        const projects = await getProjects(tipo)
         setAvailableProjects(projects)
         // Buscar proyecto que coincida con semana y modo
         const matching = projects.find(p =>
@@ -1546,7 +1625,7 @@ function DeliveryModule({
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2">Semana de entrega</label>
+          <label className="block text-sm font-medium mb-2">{L.weekLabel}</label>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
@@ -1674,7 +1753,7 @@ function DeliveryModule({
               const url = window.URL.createObjectURL(blob)
               const a = document.createElement("a")
               a.href = url
-              a.download = `entregas_semana_${weekLabel}.csv`
+              a.download = `${L.csvPrefix}_semana_${weekLabel}.csv`
               a.click()
               window.URL.revokeObjectURL(url)
             }}
@@ -1689,7 +1768,7 @@ function DeliveryModule({
             onClick={() => {
               const weekLabel = format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "d 'de' MMMM yyyy", { locale: es })
               let html = `
-                <html><head><title>Entregas - Semana del ${weekLabel}</title>
+                <html><head><title>${L.Noun} - Semana del ${weekLabel}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 20px; color: #333; }
                   h1 { font-size: 18px; margin-bottom: 4px; }
@@ -1702,7 +1781,7 @@ function DeliveryModule({
                   .activities { color: #555; font-size: 12px; }
                   @media print { body { padding: 0; } }
                 </style></head><body>
-                <h1>Plan de Entregas - Semana del ${weekLabel}</h1>
+                <h1>${L.planTitle} - Semana del ${weekLabel}</h1>
                 <div class="subtitle">${filteredPlans.length} centros &middot; ${availableDays.length} días &middot; ${selectedActivities.join(", ")}</div>
               `
 
@@ -1798,7 +1877,7 @@ function DeliveryModule({
                 } else {
                   // Crear nuevo proyecto
                   const projectId = await createProject({
-                    tipo: 'entrega',
+                    tipo,
                     modo: deliveryType as 'trimestral' | 'inicio-curso',
                     fechaInicio: weekStartStr,
                     fechaFin: weekEndStr,
@@ -1809,7 +1888,7 @@ function DeliveryModule({
                     const deliveries = buildDeliveries()
                     await saveProjectDeliveries(projectId, deliveries)
                     // Recargar proyecto
-                    const projects = await getProjects('entrega')
+                    const projects = await getProjects(tipo)
                     const newProject = projects.find(p => p.id === projectId)
                     if (newProject) setActiveProject(newProject)
                     setProjectSaved(true)
@@ -1838,7 +1917,7 @@ function DeliveryModule({
               onClick={async () => {
                 // Recargar lista de proyectos al abrir
                 try {
-                  const projects = await getProjects('entrega')
+                  const projects = await getProjects(tipo)
                   setAvailableProjects(projects)
                 } catch {}
                 setShowProjectSelector(!showProjectSelector)
@@ -1996,7 +2075,8 @@ function DeliveryModule({
                                   0,
                                   [],
                                   handleRouteReorganization,
-                                  activeProject?.id
+                                  activeProject?.id,
+                                  mode
                                 )
                               }}
                               disabled={totalForRoute === 0}
@@ -2009,13 +2089,13 @@ function DeliveryModule({
                               variant="outline"
                               onClick={() => {
                                 // Placeholder: en futuro se puede conectar a tracking
-                                alert(`Ruta de ${formattedDay} marcada como entregada (${totalForRoute} centros)`)
+                                alert(`Ruta de ${formattedDay} marcada como ${L.verbPast} (${totalForRoute} centros)`)
                               }}
                               disabled={totalForRoute === 0}
                               className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-300"
                             >
                               <CheckCircle className="h-4 w-4 mr-2" />
-                              Ruta entregada
+                              {L.routeDone}
                             </Button>
                           </div>
                         </div>
@@ -2152,7 +2232,7 @@ function DeliveryModule({
       ) : (
         <Card className="p-8 text-center">
           <Truck className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-          <h3 className="text-lg font-semibold mb-2">No hay entregas programadas</h3>
+          <h3 className="text-lg font-semibold mb-2">{L.emptyTitle}</h3>
           <p className="text-gray-600">
             No se encontraron centros para la semana seleccionada con los filtros actuales.
           </p>
@@ -2659,6 +2739,7 @@ export default function Home() {
   const [expandedSchool, setExpandedSchool] = useState<string | null>(null)
   const [schoolsDatabase, setSchoolsDatabase] = useState<School[]>([])
   const [deliverySchools, setDeliverySchools] = useState<DeliverySchool[]>([])
+  const [pickupSchools, setPickupSchools] = useState<DeliverySchool[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -2678,6 +2759,9 @@ export default function Home() {
       // Procesar datos para entregas
       const deliveryData = processDeliveryData(sheetData)
 
+      // Procesar datos para recogidas (mismo shape, anclado en FINAL CURS)
+      const pickupData = processPickupData(sheetData)
+
       if (processedData.length === 0) {
         console.warn("No se procesaron datos, usando datos de ejemplo")
         setSchoolsDatabase(FALLBACK_DATA)
@@ -2686,6 +2770,7 @@ export default function Home() {
       }
 
       setDeliverySchools(deliveryData)
+      setPickupSchools(pickupData)
       setLastUpdated(new Date())
     } catch (err) {
       console.error("Error loading data, usando datos de ejemplo:", err)
@@ -2694,6 +2779,7 @@ export default function Home() {
       // Usar datos de ejemplo como fallback
       setSchoolsDatabase(FALLBACK_DATA)
       setDeliverySchools([])
+      setPickupSchools([])
       setLastUpdated(new Date())
     } finally {
       setLoading(false)
@@ -2797,7 +2883,7 @@ export default function Home() {
   const [deliveryReorganizations, setDeliveryReorganizations] = useState<{ [key: string]: any }>({})
   
   // Función para abrir el editor de rutas con datos de entregas - Vista completa semanal
-  const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter: number = 0, additionalPlans: DeliveryPlan[] = [], onReorganizeCb?: (items: any) => void, projectId?: string) => {
+  const openDeliveryRouteEditor = (allWeekPlans: DeliveryPlan[], dayName: string, deliveryType: string, weekStart: string, minStudentsFilter: number = 0, additionalPlans: DeliveryPlan[] = [], onReorganizeCb?: (items: any) => void, projectId?: string, mode: 'entrega' | 'recogida' = 'entrega') => {
     // Recibimos todos los planes de la semana para permitir drag & drop entre días
     // También recibimos planes adicionales de la semana siguiente (adelantados)
 
@@ -2837,9 +2923,10 @@ export default function Home() {
     })
 
     setRouteConfig({
-      title: `Entregas Semana del ${format(new Date(weekStart), "PPP", { locale: es })}`,
+      title: `${mode === 'recogida' ? 'Recogidas' : 'Entregas'} Semana del ${format(new Date(weekStart), "PPP", { locale: es })}`,
       items: routeItems,
       type: "delivery",
+      mode,
       selectedDay: dayName,
       deliveryType: deliveryType,
       weekStart: weekStart,
@@ -2932,6 +3019,8 @@ export default function Home() {
           </TabsContent>
 
           <TabsContent value="recogidas">
+            <DeliveryModule mode="recogida" deliverySchools={pickupSchools} onOpenRouteEditor={openDeliveryRouteEditor} />
+            {false && (
             <Tabs
               value={activeDay}
               onValueChange={(value) => setActiveDay(value as "jueves" | "viernes")}
@@ -3009,6 +3098,7 @@ export default function Home() {
                 </div>
               </div>
             </Tabs>
+            )}
           </TabsContent>
         </Tabs>
       </div>

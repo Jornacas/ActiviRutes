@@ -59,3 +59,23 @@ mantiene a la vez `startCamera()` con `getUserMedia` (línea ~212) y el `input t
 con el comentario "Ya no necesitamos la parte compleja del video". Coexisten ambos caminos.
 **Consecuencias / deuda técnica:** código de cámara WebRTC duplicado/muerto que conviene consolidar
 a un único flujo (file-input) o documentar el fallback de forma explícita. **Pendiente de decidir.**
+
+## [2026-06-14] — Recogidas = proyecto `tipo:'recogida'` reutilizando el stack de Entregas (no módulo paralelo)
+**Contexto:** el `PLAN_RECOGIDAS_ADMIN.md` (anterior al refactor de proyectos de abril 2026) proponía
+un módulo paralelo: endpoint `/api/pickups` + `getPickups` sobre la hoja base con lista plana y filtros
+hoy/próximas/histórico por columna K (FINAL CURS). Pero el código ya evolucionó a un sistema de
+proyectos con `tipo: 'entrega' | 'recogida'` (hoja `Proyectos`, `getProjects(tipo)`), y `ProyectoEntregas`
+es compartido. Seguir el plan literal habría creado arquitectura duplicada e incoherente.
+**Decisión:** Recogidas se implementa como proyecto `tipo:'recogida'` reutilizando TODO el stack de
+Entregas: `DeliveryModule` (parametrizado con prop `mode`), `generateDeliveryPlan`, el editor de rutas
+(`type:'pickup'`/`projectId`), `ProyectoEntregas` y el transportista. Se descarta `/api/pickups`.
+**Clave de reutilización:** `generateDeliveryPlan` ancla la planificación en `courseStart`. Para
+recogidas se construyen los datos (`processPickupData`) con `courseStart = FINAL CURS`, de modo que la
+elegibilidad "solo se recoge a partir de FINAL CURS" cae directamente del motor existente sin duplicarlo.
+**Porqué:** una única fuente de verdad y un solo componente que mantener; coherente con el modelo
+unificado de guardado y con la filosofía "reutilizar parametrizado, no duplicar".
+**Consecuencias:** se sustituye el tab Recogidas primitivo (jueves/viernes por `lastActivityDay`).
+`numBultos`/`denominacionBultos` son manuales en UI (placeholder) con soporte en estructura/API
+(columnas nuevas en `ProyectoEntregas` → requiere redeploy GAS). El transportista relabela
+"Entregar"→"Recoger" según `tipo` del proyecto.
+**Decidido con Jordi** (2026-06-14): opción "Reusar proyectos" + bultos "Manual en UI".
