@@ -79,3 +79,31 @@ unificado de guardado y con la filosofía "reutilizar parametrizado, no duplicar
 (columnas nuevas en `ProyectoEntregas` → requiere redeploy GAS). El transportista relabela
 "Entregar"→"Recoger" según `tipo` del proyecto.
 **Decidido con Jordi** (2026-06-14): opción "Reusar proyectos" + bultos "Manual en UI".
+
+## [2026-06-14] — Recogidas: pool acumulativo por FINAL CURS (no semana-exacta) + ciclo recogido→Histórico
+**Contexto:** una recogida es un acto **único** al finalizar el curso (a diferencia de entregas, que
+pueden ser progresivas trimestral/inicio-curso). El modelo "semana-exacta" heredado de entregas no
+encajaba: un centro debe poder recogerse desde que acaba y seguir visible hasta hacerlo.
+**Decisión (con Jordi):** la elegibilidad la decide **FINAL CURS de forma acumulativa** — un centro
+está "disponible para recoger" desde que `FINAL CURS <= hoy` y sigue en el pool hasta marcarlo
+recogido. Se **quita el selector "Modo"** (acto único; internamente se usa 'trimestral'). Filtro
+**Disponibles hoy / Próximas / Todas / Histórico**. La **semana** pasa a ser "cuándo ejecutas la
+ruta" (a qué días asignas), no la elegibilidad.
+**Ciclo recogido:** el transportista marca `recogido` al confirmar; además hay **marca manual** por
+centro y por día desde la planificación (botón "Recogido" / "Ruta recogida"), con "Deshacer". Los
+recogidos salen del pool y van a **Histórico**. GAS `saveProjectDeliveries` **preserva** las filas
+`recogido` al re-guardar (no las borra) para no perder el histórico.
+**Consecuencias:** la detección de "adelantados de próxima semana" (heredada de entregas) **no aplica**
+en recogidas y se omite (si no, marcaba los recogidos como adelantados por error). GAS desplegado @66.
+**Verificación:** confirmado funcionando en producción por Jordi (2026-06-14).
+
+## [2026-06-14] — Formato de fechas mostradas: dd-MM-yyyy en toda la UI
+**Contexto:** convivían formatos inconsistentes (timestamp ISO, "8 de junio de 2026", "8/6/2026").
+**Decisión (con Jordi):** todas las fechas **visibles** al usuario en `dd-MM-yyyy` (y `dd-MM-yyyy HH:mm`
+con hora), vía `lib/date.ts` (`formatDMY` / `formatDMYTime`). El **almacenamiento interno y el matching
+siguen en ISO / `yyyy-MM-dd`** (la lógica depende de ello; no tocar).
+**Consecuencias:** `app/page.tsx` usa `format(d, 'dd-MM-yyyy')`; admin/informe/transportista usan el
+util. El campo FECHA de la hoja ENTREGAS (dato, no display) se deja en es-ES para no romper el parseo
+del admin. Se corrigió además el matching de auto-carga de proyecto: `fechaInicio` llega como timestamp
+ISO desde Sheets y se normaliza a `yyyy-MM-dd` antes de comparar con la semana.
+**Verificación:** confirmado en producción ("14-06-2026", "08-06-2026").
