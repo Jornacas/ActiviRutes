@@ -1308,6 +1308,9 @@ function DeliveryModule({
 
   const debouncedSearchTerm = useDebounced(searchTerm, 300)
 
+  // Recogidas: filtro de elegibilidad acumulativa por FINAL CURS
+  const [pickupFilter, setPickupFilter] = useState<'disponibles' | 'proximas' | 'todas'>('disponibles')
+
   // Pre-filtrar escuelas por actividades seleccionadas ANTES de generar el plan
   // Esto es crucial: el filtro de actividades afecta qué días tiene cada centro,
   // y por tanto a qué día se le asigna la entrega
@@ -1332,16 +1335,20 @@ function DeliveryModule({
     }).filter(school => Object.keys(school.activities).length > 0)
   }, [deliverySchools, selectedActivities])
 
-  // Generar planes de entrega para la semana (con escuelas ya filtradas)
-  const deliveryPlans = useMemo(() => {
-    return generateDeliveryPlan(filteredDeliverySchools, selectedWeek, deliveryType, holidays)
-  }, [filteredDeliverySchools, selectedWeek, deliveryType, holidays])
+  // En recogidas el reparto es acumulativo: usamos 'trimestral' (todos los centros en
+  // su día, sin filtro de semana de inicio) y la elegibilidad la decide FINAL CURS.
+  const planMode: DeliveryType = isPickup ? 'trimestral' : deliveryType
 
-  // Planes de la SEMANA SIGUIENTE (para aprovechar rutas)
+  // Generar planes para la semana (con escuelas ya filtradas)
+  const deliveryPlans = useMemo(() => {
+    return generateDeliveryPlan(filteredDeliverySchools, selectedWeek, planMode, holidays)
+  }, [filteredDeliverySchools, selectedWeek, planMode, holidays])
+
+  // Planes de la SEMANA SIGUIENTE (para aprovechar rutas; solo aplica a entregas)
   const nextWeekPlans = useMemo(() => {
     const nextWeek = addDays(selectedWeek, 7)
-    return generateDeliveryPlan(filteredDeliverySchools, nextWeek, deliveryType, holidays)
-  }, [filteredDeliverySchools, selectedWeek, deliveryType, holidays])
+    return generateDeliveryPlan(filteredDeliverySchools, nextWeek, planMode, holidays)
+  }, [filteredDeliverySchools, selectedWeek, planMode, holidays])
 
   // Centros seleccionados de la semana siguiente
   const [selectedNextWeekCenters, setSelectedNextWeekCenters] = useState<Set<string>>(new Set())
@@ -1358,18 +1365,34 @@ function DeliveryModule({
     })
   }, [])
 
-  // Filtrar planes por búsqueda (actividades ya filtradas en filteredDeliverySchools)
+  // Filtrar planes por búsqueda (+ elegibilidad por FINAL CURS en recogidas)
   const filteredPlans = useMemo(() => {
     if (!deliveryPlans.length) return []
-    if (!debouncedSearchTerm) return deliveryPlans
+
+    let plans = deliveryPlans
+
+    // Recogidas: elegibilidad acumulativa. school.courseStart = FINAL CURS.
+    if (isPickup) {
+      const todayEnd = new Date()
+      todayEnd.setHours(23, 59, 59, 999) // todo el día de hoy cuenta como "disponible"
+      plans = plans.filter((plan) => {
+        const fin = plan.school.courseStart
+        // Sin fecha válida → tratamos como disponible ya (no "próxima")
+        if (!fin || isNaN(fin.getTime())) return pickupFilter !== 'proximas'
+        if (pickupFilter === 'disponibles') return fin.getTime() <= todayEnd.getTime()
+        if (pickupFilter === 'proximas') return fin.getTime() > todayEnd.getTime()
+        return true // 'todas'
+      })
+    }
+
+    if (!debouncedSearchTerm) return plans
 
     const lowerSearchTerm = debouncedSearchTerm.toLowerCase()
-
-    return deliveryPlans.filter((plan) =>
+    return plans.filter((plan) =>
       plan.school.name.toLowerCase().includes(lowerSearchTerm) ||
       plan.activities.some((activity) => activity.activity.toLowerCase().includes(lowerSearchTerm))
     )
-  }, [deliveryPlans, debouncedSearchTerm])
+  }, [deliveryPlans, debouncedSearchTerm, isPickup, pickupFilter])
 
   // Días laborables disponibles (excluyendo festivos)
   const availableDays = useMemo(() => {
@@ -1618,16 +1641,34 @@ function DeliveryModule({
       {/* Controles principales */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-2">Modo</label>
-          <Select value={deliveryType} onValueChange={(value: DeliveryType) => setDeliveryType(value)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="trimestral">Trimestral (todos a la vez)</SelectItem>
-              <SelectItem value="inicio-curso">Inicio de curso (progresivo)</SelectItem>
-            </SelectContent>
-          </Select>
+          {isPickup ? (
+            <>
+              <label className="block text-sm font-medium mb-2">Mostrar</label>
+              <Select value={pickupFilter} onValueChange={(value) => setPickupFilter(value as 'disponibles' | 'proximas' | 'todas')}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="disponibles">Disponibles hoy</SelectItem>
+                  <SelectItem value="proximas">Próximas (aún no acaban)</SelectItem>
+                  <SelectItem value="todas">Todas</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          ) : (
+            <>
+              <label className="block text-sm font-medium mb-2">Modo</label>
+              <Select value={deliveryType} onValueChange={(value: DeliveryType) => setDeliveryType(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="trimestral">Trimestral (todos a la vez)</SelectItem>
+                  <SelectItem value="inicio-curso">Inicio de curso (progresivo)</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
         </div>
 
         <div>
@@ -2122,6 +2163,11 @@ function DeliveryModule({
                                   <div className="flex-1 min-w-0">
                                     <div className="font-medium">{schoolDisplayName}</div>
                                     <div className="text-sm text-gray-500 truncate">{plan.school.address}</div>
+                                    {isPickup && plan.school.courseStart && !isNaN(plan.school.courseStart.getTime()) && plan.school.courseStart.getTime() > Date.now() && (
+                                      <div className="text-xs text-amber-600 mt-0.5">
+                                        Disponible a partir del {format(plan.school.courseStart, "d 'de' MMMM", { locale: es })}
+                                      </div>
+                                    )}
                                     <div className="flex flex-wrap gap-1 mt-1">
                                       {plan.activities.map((a, i) => (
                                         <Badge key={i} variant="secondary" className="text-xs">
@@ -2171,8 +2217,9 @@ function DeliveryModule({
                           </div>
                         )}
 
-                        {/* Aprovechar ruta: centros de próxima semana (excluir los que ya están en plansByDay o seleccionados) */}
+                        {/* Aprovechar ruta: centros de próxima semana (solo entregas) */}
                         {(() => {
+                          if (isPickup) return null
                           const allCentrosIncluidos = new Set([
                             ...Object.values(plansByDay).flat().map(p => p.school.name),
                             ...Array.from(selectedNextWeekCenters)
