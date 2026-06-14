@@ -227,7 +227,7 @@ export function useProjects() {
   const updateDeliveryStatus = useCallback(async (
     projectId: string,
     centro: string,
-    status: 'pendiente' | 'entregado' | 'adelantado',
+    status: 'pendiente' | 'entregado' | 'adelantado' | 'recogido',
     fechaEntrega?: string,
     notas?: string
   ): Promise<boolean> => {
@@ -266,7 +266,7 @@ export function useProjects() {
   const updateMultipleDeliveries = useCallback(async (
     projectId: string,
     centros: string[],
-    status: 'pendiente' | 'entregado' | 'adelantado',
+    status: 'pendiente' | 'entregado' | 'adelantado' | 'recogido',
     fechaEntrega: string
   ): Promise<{ updated: number; errors: number }> => {
     setLoading(true)

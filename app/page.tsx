@@ -1300,7 +1300,7 @@ function DeliveryModule({
   const [selectedPlanningDay, setSelectedPlanningDay] = useState<string>("martes")
 
   // Proyecto activo en Google Sheets
-  const { getProjects, createProject, updateProject, saveProjectDeliveries, getProjectDeliveries, deleteProject: deleteProjectApi, loading: projectLoading } = useProjects()
+  const { getProjects, createProject, updateProject, saveProjectDeliveries, getProjectDeliveries, deleteProject: deleteProjectApi, updateDeliveryStatus, updateMultipleDeliveries, loading: projectLoading } = useProjects()
   const [activeProject, setActiveProject] = useState<Project | null>(null)
   const [projectSaved, setProjectSaved] = useState(false)
   const [availableProjects, setAvailableProjects] = useState<Project[]>([])
@@ -1393,6 +1393,32 @@ function DeliveryModule({
     load()
     return () => { cancelled = true }
   }, [isPickup, availableProjects, getProjectDeliveries])
+
+  // Marcar/desmarcar recogido manualmente desde la planificación.
+  // Actualiza el proyecto (Sheets) y el pool local (sale de pendientes → Histórico).
+  const markPickedUp = useCallback(async (centro: string) => {
+    const today = new Date().toISOString()
+    setPickedUp(prev => ({ ...prev, [centro]: today }))
+    if (activeProject) {
+      try { await updateDeliveryStatus(activeProject.id, centro, 'recogido', today) } catch {}
+    }
+  }, [activeProject, updateDeliveryStatus])
+
+  const unmarkPickedUp = useCallback(async (centro: string) => {
+    setPickedUp(prev => { const n = { ...prev }; delete n[centro]; return n })
+    if (activeProject) {
+      try { await updateDeliveryStatus(activeProject.id, centro, 'pendiente', '') } catch {}
+    }
+  }, [activeProject, updateDeliveryStatus])
+
+  const markDayPickedUp = useCallback(async (centros: string[]) => {
+    if (!centros.length) return
+    const today = new Date().toISOString()
+    setPickedUp(prev => { const n = { ...prev }; centros.forEach(c => { n[c] = today }); return n })
+    if (activeProject) {
+      try { await updateMultipleDeliveries(activeProject.id, centros, 'recogido', today) } catch {}
+    }
+  }, [activeProject, updateMultipleDeliveries])
 
   // Filtrar planes por búsqueda (+ elegibilidad por FINAL CURS en recogidas)
   const filteredPlans = useMemo(() => {
@@ -2259,8 +2285,14 @@ function DeliveryModule({
                             <Button
                               variant="outline"
                               onClick={() => {
-                                // Placeholder: en futuro se puede conectar a tracking
-                                alert(`Ruta de ${formattedDay} marcada como ${L.verbPast} (${totalForRoute} centros)`)
+                                if (isPickup) {
+                                  const centros = assignedPlans.map(p => p.school.name).filter(n => !pickedUp[n])
+                                  if (centros.length && confirm(`¿Marcar como recogidas las ${centros.length} de ${formattedDay}? Pasarán al Histórico.`)) {
+                                    markDayPickedUp(centros)
+                                  }
+                                } else {
+                                  alert(`Ruta de ${formattedDay} marcada como ${L.verbPast} (${totalForRoute} centros)`)
+                                }
                               }}
                               disabled={totalForRoute === 0}
                               className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-300"
@@ -2305,6 +2337,29 @@ function DeliveryModule({
                                       ))}
                                     </div>
                                   </div>
+                                  {isPickup && (
+                                    pickedUp[plan.school.name] ? (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => unmarkPickedUp(plan.school.name)}
+                                        className="flex-shrink-0 text-gray-400 hover:text-gray-700"
+                                        title="Marcar de nuevo como pendiente"
+                                      >
+                                        Deshacer
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => markPickedUp(plan.school.name)}
+                                        className="flex-shrink-0 text-green-700 border-green-300 hover:bg-green-50"
+                                        title="Marcar como recogido"
+                                      >
+                                        <CheckCircle className="h-4 w-4 mr-1" /> Recogido
+                                      </Button>
+                                    )
+                                  )}
                                 </div>
                               )
                             })}

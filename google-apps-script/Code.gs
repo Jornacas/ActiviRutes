@@ -712,13 +712,15 @@ function saveProjectDeliveries(projectId, deliveries) {
 
     const { deliveriesSheet } = initProjectSheets();
 
-    // Primero, eliminar entregas existentes de este proyecto para evitar duplicados
+    // Eliminar entregas existentes de este proyecto para evitar duplicados,
+    // EXCEPTO las ya marcadas como 'recogido' (preservar histórico: un re-guardado
+    // del frontend, que solo envía las pendientes, no debe borrar las recogidas).
     const lastRowBefore = deliveriesSheet.getLastRow();
     if (lastRowBefore > 1) {
-      const existingData = deliveriesSheet.getRange(2, 1, lastRowBefore - 1, 1).getValues();
-      // Eliminar filas del proyecto de abajo hacia arriba
+      const existingData = deliveriesSheet.getRange(2, 1, lastRowBefore - 1, 7).getValues();
+      // Columna 7 (índice 6) = Estado
       for (var i = existingData.length - 1; i >= 0; i--) {
-        if (existingData[i][0] === projectId) {
+        if (existingData[i][0] === projectId && existingData[i][6] !== 'recogido') {
           deliveriesSheet.deleteRow(i + 2);
         }
       }
