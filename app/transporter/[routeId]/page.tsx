@@ -1224,6 +1224,29 @@ export default function TransporterApp() {
       addDebugLog('⚠️ Continuando sin evento Admin...')
     }
 
+    // Recogidas: marcar el centro como 'recogido' en el proyecto (no bloquea el flujo).
+    // item.id = nombre de centro sin prefijo "Escola" → coincide con la columna Centro.
+    if (isPickup && projectId) {
+      ;(async () => {
+        try {
+          await fetch('/api/projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'updateDeliveryStatus',
+              projectId,
+              centro: item.id,
+              status: 'recogido',
+              fechaEntrega: new Date().toISOString(),
+            }),
+          })
+          addDebugLog('✅ Centro marcado como recogido en el proyecto')
+        } catch (e) {
+          addDebugLog(`⚠️ No se pudo marcar recogido en proyecto: ${e}`)
+        }
+      })()
+    }
+
     // Limpiar formulario y cerrar inmediatamente — la entrega ya está
     // registrada localmente; lo de Sheets corre en background.
     setExpandedItemId(null)

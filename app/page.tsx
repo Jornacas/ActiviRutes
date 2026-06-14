@@ -1309,7 +1309,9 @@ function DeliveryModule({
   const debouncedSearchTerm = useDebounced(searchTerm, 300)
 
   // Recogidas: filtro de elegibilidad acumulativa por FINAL CURS
-  const [pickupFilter, setPickupFilter] = useState<'disponibles' | 'proximas' | 'todas'>('disponibles')
+  const [pickupFilter, setPickupFilter] = useState<'disponibles' | 'proximas' | 'todas' | 'historico'>('disponibles')
+  // Centros ya recogidos (centro → fecha ISO), agregados de los proyectos de recogida
+  const [pickedUp, setPickedUp] = useState<Record<string, string>>({})
 
   // Pre-filtrar escuelas por actividades seleccionadas ANTES de generar el plan
   // Esto es crucial: el filtro de actividades afecta qué días tiene cada centro,
@@ -1365,6 +1367,27 @@ function DeliveryModule({
     })
   }, [])
 
+  // Recogidas: cargar centros ya recogidos (de todos los proyectos de recogida)
+  // para excluirlos del pool de pendientes y poblar el Histórico.
+  useEffect(() => {
+    if (!isPickup) { setPickedUp({}); return }
+    let cancelled = false
+    const load = async () => {
+      const map: Record<string, string> = {}
+      for (const p of availableProjects) {
+        try {
+          const dels = await getProjectDeliveries(p.id)
+          dels.forEach(d => {
+            if (d.estado === 'recogido') map[d.centro] = d.fechaEntrega || ''
+          })
+        } catch {}
+      }
+      if (!cancelled) setPickedUp(map)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [isPickup, availableProjects, getProjectDeliveries])
+
   // Filtrar planes por búsqueda (+ elegibilidad por FINAL CURS en recogidas)
   const filteredPlans = useMemo(() => {
     if (!deliveryPlans.length) return []
@@ -1376,6 +1399,11 @@ function DeliveryModule({
       const todayEnd = new Date()
       todayEnd.setHours(23, 59, 59, 999) // todo el día de hoy cuenta como "disponible"
       plans = plans.filter((plan) => {
+        const isRecogido = !!pickedUp[plan.school.name]
+        // Histórico: solo los ya recogidos
+        if (pickupFilter === 'historico') return isRecogido
+        // Resto de filtros: excluir los ya recogidos del pool de pendientes
+        if (isRecogido) return false
         const fin = plan.school.courseStart
         // Sin fecha válida → tratamos como disponible ya (no "próxima")
         if (!fin || isNaN(fin.getTime())) return pickupFilter !== 'proximas'
@@ -1392,7 +1420,7 @@ function DeliveryModule({
       plan.school.name.toLowerCase().includes(lowerSearchTerm) ||
       plan.activities.some((activity) => activity.activity.toLowerCase().includes(lowerSearchTerm))
     )
-  }, [deliveryPlans, debouncedSearchTerm, isPickup, pickupFilter])
+  }, [deliveryPlans, debouncedSearchTerm, isPickup, pickupFilter, pickedUp])
 
   // Días laborables disponibles (excluyendo festivos)
   const availableDays = useMemo(() => {
@@ -1557,7 +1585,10 @@ function DeliveryModule({
     filteredPlans.forEach(p => { plansByName[p.school.name] = p })
     nextWeekPlans.forEach(p => { if (!plansByName[p.school.name]) plansByName[p.school.name] = p })
 
-    if (savedReorganization) {
+    // En recogidas-Histórico ignoramos la reorganización guardada: mostramos solo los recogidos.
+    const useSaved = savedReorganization && !(isPickup && pickupFilter === 'historico')
+
+    if (useSaved) {
       // savedReorganization es la fuente de verdad (viene del proyecto guardado o del editor)
       // Incluye centros de esta semana Y adelantados, con orden correcto
       const centrosEnReorganizacion = new Set<string>()
@@ -1633,8 +1664,15 @@ function DeliveryModule({
       })
     }
 
+    // Recogidas: quitar de la vista de pendientes los centros ya recogidos
+    if (isPickup && pickupFilter !== 'historico') {
+      Object.keys(grouped).forEach(day => {
+        grouped[day] = grouped[day].filter(p => !pickedUp[p.school.name])
+      })
+    }
+
     return grouped
-  }, [filteredPlans, nextWeekPlans, availableDays, savedReorganization])
+  }, [filteredPlans, nextWeekPlans, availableDays, savedReorganization, isPickup, pickupFilter, pickedUp])
 
   return (
     <div className="space-y-6">
@@ -1644,14 +1682,15 @@ function DeliveryModule({
           {isPickup ? (
             <>
               <label className="block text-sm font-medium mb-2">Mostrar</label>
-              <Select value={pickupFilter} onValueChange={(value) => setPickupFilter(value as 'disponibles' | 'proximas' | 'todas')}>
+              <Select value={pickupFilter} onValueChange={(value) => setPickupFilter(value as 'disponibles' | 'proximas' | 'todas' | 'historico')}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="disponibles">Disponibles hoy</SelectItem>
                   <SelectItem value="proximas">Próximas (aún no acaban)</SelectItem>
-                  <SelectItem value="todas">Todas</SelectItem>
+                  <SelectItem value="todas">Todas (pendientes)</SelectItem>
+                  <SelectItem value="historico">Histórico (recogidas)</SelectItem>
                 </SelectContent>
               </Select>
             </>
@@ -2163,9 +2202,14 @@ function DeliveryModule({
                                   <div className="flex-1 min-w-0">
                                     <div className="font-medium">{schoolDisplayName}</div>
                                     <div className="text-sm text-gray-500 truncate">{plan.school.address}</div>
-                                    {isPickup && plan.school.courseStart && !isNaN(plan.school.courseStart.getTime()) && plan.school.courseStart.getTime() > Date.now() && (
+                                    {isPickup && !pickedUp[plan.school.name] && plan.school.courseStart && !isNaN(plan.school.courseStart.getTime()) && plan.school.courseStart.getTime() > Date.now() && (
                                       <div className="text-xs text-amber-600 mt-0.5">
                                         Disponible a partir del {format(plan.school.courseStart, "d 'de' MMMM", { locale: es })}
+                                      </div>
+                                    )}
+                                    {isPickup && pickedUp[plan.school.name] && (
+                                      <div className="text-xs text-green-600 mt-0.5">
+                                        ✓ Recogido{(() => { try { return ` el ${format(new Date(pickedUp[plan.school.name]), "d 'de' MMMM", { locale: es })}` } catch { return '' } })()}
                                       </div>
                                     )}
                                     <div className="flex flex-wrap gap-1 mt-1">
