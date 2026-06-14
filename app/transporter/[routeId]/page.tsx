@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { formatDMYTime } from "@/lib/date"
 import { MapPin, Clock, Package, CheckCircle, User, Signature, Truck, RefreshCw, Loader2, ArrowUp, ArrowDown, X, Edit3, Navigation, BarChart3, Map, Camera, Trash2, RotateCcw, Save } from "lucide-react"
 
 // Parsear hora de Google Sheets (puede venir como "1899-12-30T16:20:39.000Z" o "09:30")
@@ -1755,13 +1756,7 @@ export default function TransporterApp() {
                       
                       <p className="flex items-center">
                         <Clock className="h-4 w-4 mr-2 flex-shrink-0" /> 
-                        Fecha: <span className="font-medium ml-1">{new Date(currentDelivery.timestamp).toLocaleString('es-ES', { 
-                          day: '2-digit', 
-                          month: '2-digit', 
-                          year: 'numeric', 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        })}</span>
+                        Fecha: <span className="font-medium ml-1">{formatDMYTime(currentDelivery.timestamp)}</span>
                       </p>
                     </div>
 

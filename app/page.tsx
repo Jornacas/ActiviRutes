@@ -1219,7 +1219,7 @@ function HolidayManager({
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-[200px] justify-start text-left font-normal bg-transparent">
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {newHolidayDate ? format(newHolidayDate, "PPP", { locale: es }) : "Seleccionar fecha"}
+                {newHolidayDate ? format(newHolidayDate, "dd-MM-yyyy") : "Seleccionar fecha"}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">
@@ -1242,7 +1242,7 @@ function HolidayManager({
             <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
               <div>
                 <span className="font-medium">{holiday.name}</span>
-                <span className="text-sm text-gray-500 ml-2">{format(holiday.date, "PPP", { locale: es })}</span>
+                <span className="text-sm text-gray-500 ml-2">{format(holiday.date, "dd-MM-yyyy")}</span>
               </div>
               <Button variant="ghost" size="sm" onClick={() => removeHoliday(index)}>
                 <X className="h-4 w-4" />
@@ -1452,9 +1452,12 @@ function DeliveryModule({
         const projects = await getProjects(tipo)
         setAvailableProjects(projects)
         // Buscar proyecto que coincida con semana y modo
-        const matching = projects.find(p =>
-          p.fechaInicio === weekStartStr && p.modo === deliveryType
-        )
+        const matching = projects.find(p => {
+          // fechaInicio puede venir como ISO timestamp desde Sheets; normalizar a yyyy-MM-dd
+          let pStart = p.fechaInicio
+          try { const d = new Date(p.fechaInicio); if (!isNaN(d.getTime())) pStart = format(d, 'yyyy-MM-dd') } catch {}
+          return pStart === weekStartStr && p.modo === deliveryType
+        })
         if (matching) {
           setActiveProject(matching)
           setProjectSaved(true)
@@ -1716,7 +1719,7 @@ function DeliveryModule({
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-full justify-start text-left font-normal bg-transparent">
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {format(selectedWeek, "PPP", { locale: es })}
+                {format(selectedWeek, "dd-MM-yyyy")}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0">
@@ -1798,7 +1801,7 @@ function DeliveryModule({
             <span className="font-semibold text-blue-800">{availableDays.length} días</span>
             <span className="text-blue-600"> &middot; Semana del </span>
             <span className="font-semibold text-blue-800">
-              {format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "d 'de' MMMM", { locale: es })}
+              {format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "dd-MM-yyyy")}
             </span>
             {holidays.length > 0 && (
               <span className="text-orange-600 ml-2">
@@ -1817,7 +1820,7 @@ function DeliveryModule({
             variant="outline"
             size="sm"
             onClick={() => {
-              const weekLabel = format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "d-MM-yyyy")
+              const weekLabel = format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "dd-MM-yyyy")
               const bom = "\uFEFF"
               const rows = ["Día;Orden;Centro;Dirección;Actividades"]
 
@@ -1852,7 +1855,7 @@ function DeliveryModule({
             variant="outline"
             size="sm"
             onClick={() => {
-              const weekLabel = format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "d 'de' MMMM yyyy", { locale: es })
+              const weekLabel = format(startOfWeek(selectedWeek, { weekStartsOn: 1 }), "dd-MM-yyyy")
               let html = `
                 <html><head><title>${L.Noun} - Semana del ${weekLabel}</title>
                 <style>
@@ -2018,7 +2021,7 @@ function DeliveryModule({
                 {availableProjects.map(project => {
                   const isActive = activeProject?.id === project.id
                   const weekLabel = (() => {
-                    try { return format(new Date(project.fechaInicio), "d MMM yyyy", { locale: es }) }
+                    try { return format(new Date(project.fechaInicio), "dd-MM-yyyy") }
                     catch { return project.fechaInicio }
                   })()
                   return (
@@ -2204,12 +2207,12 @@ function DeliveryModule({
                                     <div className="text-sm text-gray-500 truncate">{plan.school.address}</div>
                                     {isPickup && !pickedUp[plan.school.name] && plan.school.courseStart && !isNaN(plan.school.courseStart.getTime()) && plan.school.courseStart.getTime() > Date.now() && (
                                       <div className="text-xs text-amber-600 mt-0.5">
-                                        Disponible a partir del {format(plan.school.courseStart, "d 'de' MMMM", { locale: es })}
+                                        Disponible a partir del {format(plan.school.courseStart, "dd-MM-yyyy")}
                                       </div>
                                     )}
                                     {isPickup && pickedUp[plan.school.name] && (
                                       <div className="text-xs text-green-600 mt-0.5">
-                                        ✓ Recogido{(() => { try { return ` el ${format(new Date(pickedUp[plan.school.name]), "d 'de' MMMM", { locale: es })}` } catch { return '' } })()}
+                                        ✓ Recogido{(() => { try { return ` el ${format(new Date(pickedUp[plan.school.name]), "dd-MM-yyyy")}` } catch { return '' } })()}
                                       </div>
                                     )}
                                     <div className="flex flex-wrap gap-1 mt-1">
@@ -3022,7 +3025,7 @@ export default function Home() {
     })
 
     setRouteConfig({
-      title: `${mode === 'recogida' ? 'Recogidas' : 'Entregas'} Semana del ${format(new Date(weekStart), "PPP", { locale: es })}`,
+      title: `${mode === 'recogida' ? 'Recogidas' : 'Entregas'} Semana del ${format(new Date(weekStart), "dd-MM-yyyy")}`,
       items: routeItems,
       type: "delivery",
       mode,
@@ -3092,7 +3095,7 @@ export default function Home() {
           <p className="text-gray-600">
             {schoolsDatabase.length} centros totales • Horario: 9:00 - 15:00
             {lastUpdated && (
-              <span className="block text-sm mt-1">Última actualización: {lastUpdated.toLocaleString("es-ES")}</span>
+              <span className="block text-sm mt-1">Última actualización: {format(lastUpdated, "dd-MM-yyyy HH:mm")}</span>
             )}
           </p>
           <Button onClick={loadData} variant="outline" size="sm" className="mt-2 bg-transparent">

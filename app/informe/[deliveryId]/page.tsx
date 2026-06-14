@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { formatDMY } from "@/lib/date"
 import { 
   MapPin, 
   User, 
@@ -166,7 +167,7 @@ export default function InformePage({ params }: { params: { deliveryId: string }
             </div>
             <div className="flex items-center gap-2">
               <Calendar className="h-4 w-4 text-gray-500" />
-              <span>{new Date(delivery.timestamp).toLocaleDateString('es-ES')}</span>
+              <span>{formatDMY(delivery.timestamp)}</span>
             </div>
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-gray-500" />

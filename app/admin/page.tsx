@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { formatDMY } from "@/lib/date"
 import { 
   RefreshCw, 
   Search, 
@@ -302,7 +303,7 @@ export default function AdminPage() {
   // Copiar datos de entrega
   const copyDeliveryData = (delivery: DeliveryData) => {
     const csvRow = [
-      new Date(delivery.timestamp).toLocaleDateString('es-ES'),
+      formatDMY(delivery.timestamp),
       new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
       delivery.schoolName,
       delivery.schoolAddress,
@@ -444,7 +445,7 @@ export default function AdminPage() {
     const csvHeader = 'Fecha,Hora,Escuela,Dirección,Receptor,Actividades,Notas,Tiene Firma,Tiene Foto'
     const csvRows = filteredDeliveries.map(delivery => {
       return [
-        new Date(delivery.timestamp).toLocaleDateString('es-ES'),
+        formatDMY(delivery.timestamp),
         new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
         delivery.schoolName,
         delivery.schoolAddress,
@@ -490,7 +491,7 @@ export default function AdminPage() {
       return
     }
     
-    if (confirm(`Se eliminarán ${keysToDelete.length} entregas anteriores a ${cutoffDate.toLocaleDateString('es-ES')}. ¿Continuar?`)) {
+    if (confirm(`Se eliminarán ${keysToDelete.length} entregas anteriores a ${formatDMY(cutoffDate)}. ¿Continuar?`)) {
       keysToDelete.forEach(key => localStorage.removeItem(key))
       loadDeliveries()
       alert(`✅ ${keysToDelete.length} entregas antiguas eliminadas`)
@@ -809,7 +810,7 @@ export default function AdminPage() {
                         {getStatusBadge(delivery.status)}
                         <span className="text-sm text-gray-500">
                           {isClient ? 
-                            `${new Date(delivery.timestamp).toLocaleDateString('es-ES')} - ${new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` 
+                            `${formatDMY(delivery.timestamp)} - ${new Date(delivery.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}` 
                             : 'Cargando...'
                           }
                         </span>
