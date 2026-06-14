@@ -64,7 +64,6 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
-  const [dataSource, setDataSource] = useState<'local' | 'sheets'>('sheets')
   const [isConnectedToSheets, setIsConnectedToSheets] = useState(false)
   const [selectedDeliveries, setSelectedDeliveries] = useState<Set<string>>(new Set())
   const [selectAll, setSelectAll] = useState(false)
@@ -235,15 +234,9 @@ export default function AdminPage() {
     }
   }
 
-  // Función principal de carga (decide la fuente)
+  // Carga principal: siempre desde Google Sheets (con fallback interno a localStorage)
   const loadDeliveries = () => {
-    if (dataSource === 'sheets') {
-      loadDeliveriesFromSheets()
-    } else {
-      setIsLoading(true)
-      loadDeliveriesFromLocalStorage()
-      setIsLoading(false)
-    }
+    loadDeliveriesFromSheets()
   }
 
   // Aplicar filtros
@@ -612,49 +605,24 @@ export default function AdminPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
             Panel de Admin
-            {dataSource === 'sheets' && (
-              <Badge variant="outline" className="flex items-center gap-1">
-                {isConnectedToSheets ? (
-                  <>
-                    <Wifi className="h-3 w-3 text-green-600" />
-                    <span className="text-green-600">Google Sheets</span>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff className="h-3 w-3 text-red-600" />
-                    <span className="text-red-600">Desconectado</span>
-                  </>
-                )}
-              </Badge>
-            )}
-            {dataSource === 'local' && (
-              <Badge variant="outline" className="text-blue-600">
-                📱 Datos Locales
-              </Badge>
-            )}
+            <Badge variant="outline" className="flex items-center gap-1">
+              {isConnectedToSheets ? (
+                <>
+                  <Wifi className="h-3 w-3 text-green-600" />
+                  <span className="text-green-600">Google Sheets</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="h-3 w-3 text-red-600" />
+                  <span className="text-red-600">Desconectado</span>
+                </>
+              )}
+            </Badge>
           </h1>
           <p className="text-gray-600">Gestión de entregas ActiviRutes</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Selector de fuente de datos */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-700">Fuente:</label>
-            <select
-              value={dataSource}
-              onChange={(e) => {
-                setDataSource(e.target.value as 'local' | 'sheets')
-                // Recargar automáticamente al cambiar fuente
-                setTimeout(() => loadDeliveries(), 100)
-              }}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white"
-              title="Seleccionar fuente de datos"
-            >
-              <option value="local">📱 Datos Locales</option>
-              <option value="sheets">📊 Google Sheets</option>
-            </select>
-          </div>
-          
-          <div className="flex items-center gap-2 text-sm text-gray-500 border-l pl-3">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
                           <span>Última actualización: {isClient ? lastUpdate.toLocaleTimeString('es-ES') : 'Cargando...'}</span>
             <Button
               onClick={loadDeliveries}
@@ -999,7 +967,7 @@ export default function AdminPage() {
       )}
       
       {/* Información sobre la fuente de datos */}
-      {dataSource === 'sheets' && (
+      {(
         <Card className={isConnectedToSheets ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200"}>
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
@@ -1035,28 +1003,6 @@ export default function AdminPage() {
                     </div>
                   </>
                 )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      
-      {dataSource === 'local' && deliveries.length > 0 && (
-        <Card className="bg-yellow-50 border-yellow-200">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <Package className="h-5 w-5 text-yellow-600 mt-0.5" />
-              <div className="text-sm">
-                <h4 className="font-medium text-yellow-900 mb-1">Datos Locales</h4>
-                <p className="text-yellow-800 mb-2">
-                  Mostrando entregas almacenadas localmente en este dispositivo.
-                  Para ver datos de todos los transportistas, cambiar a "Google Sheets".
-                </p>
-                <div className="text-xs text-yellow-700">
-                  <p>💾 Fuente: localStorage del navegador</p>
-                  <p>🔄 Sincronización: Manual</p>
-                  <p>📱 Alcance: Solo este dispositivo</p>
-                </div>
               </div>
             </div>
           </CardContent>
