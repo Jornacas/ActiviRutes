@@ -1273,14 +1273,6 @@ export default function RouteEditor({
                   <Truck className="h-4 w-4 mr-2" />
                   Link Transportista
                 </Button>
-                <Button
-                  onClick={saveCurrentRoute}
-                  disabled={isSaving}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                  Guardar ruta{config.projectId ? '' : ' (local)'}
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -1338,6 +1330,10 @@ export default function RouteEditor({
                     </span>
                   </div>
                   <div className="flex items-end gap-2">
+                    <Button onClick={saveCurrentRoute} disabled={isSaving} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                      {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin text-white" /> : <Save className="h-4 w-4 mr-2 text-white" />}
+                      Guardar ruta{config.projectId ? '' : ' (local)'}
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => exportStepByStep(currentItems)}>
                       <Truck className="h-4 w-4 mr-2 text-black" />
                       Paso a Paso
@@ -1563,14 +1559,17 @@ export default function RouteEditor({
             // Vista de semana completa con drag & drop
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span className="flex items-center">
-                    <Badge variant="outline" className="mr-3 font-medium text-lg px-3 py-1">
-                      📅 Planificación Semanal
-                    </Badge>
-                    <span>Arrastra para reorganizar entre días</span>
+                <CardTitle className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="flex items-center gap-3 min-w-0">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600 flex-shrink-0">
+                      <Route className="h-5 w-5" />
+                    </span>
+                    <span className="flex flex-col min-w-0">
+                      <span className="text-lg font-semibold leading-tight text-gray-900">Planificación Semanal</span>
+                      <span className="text-sm font-normal text-gray-500">Arrastra para reorganizar entre días</span>
+                    </span>
                   </span>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       onClick={saveCurrentRoute}
                       disabled={isSaving}
@@ -1578,7 +1577,7 @@ export default function RouteEditor({
                       size="sm"
                     >
                       {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin text-white" /> : <Save className="h-4 w-4 mr-2 text-white" />}
-                      Guardar{config.projectId ? '' : ' (local)'}
+                      Guardar ruta{config.projectId ? '' : ' (local)'}
                     </Button>
                     <Button
                       onClick={() => {
