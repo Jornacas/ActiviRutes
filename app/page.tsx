@@ -1550,7 +1550,7 @@ function DeliveryModule({
           const d = JSON.parse(draftRaw)
           userEditedRef.current = false
           setSavedReorganization(d.reorganizedItems || null)
-          if (Array.isArray(d.nextWeekCenters) && d.nextWeekCenters.length) setSelectedNextWeekCenters(new Set(d.nextWeekCenters))
+          if (!isPickup && Array.isArray(d.nextWeekCenters) && d.nextWeekCenters.length) setSelectedNextWeekCenters(new Set(d.nextWeekCenters))
           if (Array.isArray(d.holidays) && d.holidays.length) setHolidays(d.holidays.map((f: string) => ({ date: new Date(f), name: 'Festivo' })))
           if (Array.isArray(d.activities) && d.activities.length) setSelectedActivities(d.activities)
           setIsDirty(true) // hay cambios sin guardar
@@ -1587,16 +1587,21 @@ function DeliveryModule({
               items.sort((a: any, b: any) => (a.orden || 0) - (b.orden || 0))
             })
             setSavedReorganization(byDay)
-            // Restaurar selectedNextWeekCenters: detectar centros que no son de esta semana
-            const currentWeekNames = new Set(filteredPlans.map(p => p.school.name))
-            const adelantadosRestaurados = new Set<string>()
-            deliveries.forEach(d => {
-              if (!currentWeekNames.has(d.centro)) {
-                adelantadosRestaurados.add(d.centro)
+            // Restaurar selectedNextWeekCenters: detectar centros que no son de esta semana.
+            // SOLO entregas: en recogidas no existen "adelantados de próxima semana", y los
+            // centros recogidos/filtrados quedan fuera de filteredPlans, por lo que esta
+            // detección los marcaría como adelantados por error.
+            if (!isPickup) {
+              const currentWeekNames = new Set(filteredPlans.map(p => p.school.name))
+              const adelantadosRestaurados = new Set<string>()
+              deliveries.forEach(d => {
+                if (!currentWeekNames.has(d.centro)) {
+                  adelantadosRestaurados.add(d.centro)
+                }
+              })
+              if (adelantadosRestaurados.size > 0) {
+                setSelectedNextWeekCenters(adelantadosRestaurados)
               }
-            })
-            if (adelantadosRestaurados.size > 0) {
-              setSelectedNextWeekCenters(adelantadosRestaurados)
             }
             return
           }
@@ -2366,8 +2371,8 @@ function DeliveryModule({
                           </div>
                         )}
 
-                        {/* Centros adelantados de semana siguiente (ya seleccionados) */}
-                        {nextWeekSelectedForDay.length > 0 && (
+                        {/* Centros adelantados de semana siguiente (ya seleccionados) — solo entregas */}
+                        {!isPickup && nextWeekSelectedForDay.length > 0 && (
                           <div className="space-y-2 border-t pt-4">
                             <h4 className="font-medium text-blue-700 text-sm flex items-center">
                               <Plus className="h-4 w-4 mr-1" />
