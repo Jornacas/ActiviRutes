@@ -27,6 +27,8 @@ export interface ProjectDelivery {
   startTime?: string
   turn?: string
   priority?: boolean
+  numBultos?: number | null
+  denominacionBultos?: string
 }
 
 export interface CreateProjectData {
@@ -49,6 +51,8 @@ export interface DeliveryToSave {
   startTime?: string
   turn?: string
   priority?: boolean
+  numBultos?: number | null
+  denominacionBultos?: string
 }
 
 export interface ProjectRouteItem {
@@ -61,6 +65,8 @@ export interface ProjectRouteItem {
   startTime?: string
   turn?: string
   priority?: boolean
+  numBultos?: number | null
+  denominacionBultos?: string
 }
 
 // Hook para gestionar proyectos

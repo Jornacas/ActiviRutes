@@ -525,19 +525,19 @@ function initProjectSheets() {
     }
   }
 
-  // Hoja de Entregas del Proyecto (13 columnas)
+  // Hoja de Entregas/Recogidas del Proyecto (15 columnas)
   let deliveriesSheet = spreadsheet.getSheetByName('ProyectoEntregas');
   if (!deliveriesSheet) {
     deliveriesSheet = spreadsheet.insertSheet('ProyectoEntregas');
-    deliveriesSheet.getRange(1, 1, 1, 13).setValues([[
+    deliveriesSheet.getRange(1, 1, 1, 15).setValues([[
       'ProyectoID', 'Centro', 'Direccion', 'FechaPlanificada', 'DiaPlanificado',
       'FechaEntrega', 'Estado', 'Actividades', 'Notas', 'Orden',
-      'HoraInicio', 'Turno', 'Prioritario'
+      'HoraInicio', 'Turno', 'Prioritario', 'NumBultos', 'DenominacionBultos'
     ]]);
-    logToSheet('✅ Hoja ProyectoEntregas creada (v3)');
+    logToSheet('✅ Hoja ProyectoEntregas creada (v4)');
   } else {
     // Migrar: añadir columnas nuevas si no existen
-    var dHeaders = deliveriesSheet.getRange(1, 1, 1, 13).getValues()[0];
+    var dHeaders = deliveriesSheet.getRange(1, 1, 1, 15).getValues()[0];
     if (!dHeaders[9] || dHeaders[9] !== 'Orden') {
       deliveriesSheet.getRange(1, 10).setValue('Orden');
     }
@@ -549,6 +549,12 @@ function initProjectSheets() {
     }
     if (!dHeaders[12] || dHeaders[12] !== 'Prioritario') {
       deliveriesSheet.getRange(1, 13).setValue('Prioritario');
+    }
+    if (!dHeaders[13] || dHeaders[13] !== 'NumBultos') {
+      deliveriesSheet.getRange(1, 14).setValue('NumBultos');
+    }
+    if (!dHeaders[14] || dHeaders[14] !== 'DenominacionBultos') {
+      deliveriesSheet.getRange(1, 15).setValue('DenominacionBultos');
     }
   }
 
@@ -718,7 +724,7 @@ function saveProjectDeliveries(projectId, deliveries) {
       }
     }
 
-    // Preparar filas para insertar (13 columnas)
+    // Preparar filas para insertar (15 columnas)
     const rows = deliveries.map((d, index) => [
       projectId,
       d.centro,
@@ -732,7 +738,9 @@ function saveProjectDeliveries(projectId, deliveries) {
       d.orden != null ? d.orden : index + 1,  // Orden dentro del día
       d.startTime || '',         // Hora de inicio: "09:30"
       d.turn || '',              // Turno: "Matí" / "Tarda"
-      d.priority ? 'true' : ''   // Prioritario
+      d.priority ? 'true' : '',  // Prioritario
+      d.numBultos != null && d.numBultos !== '' ? d.numBultos : '',  // Nº bultos (recogidas)
+      d.denominacionBultos || '' // Denominación bultos (recogidas)
     ]);
 
     // Insertar todas las filas
@@ -741,7 +749,7 @@ function saveProjectDeliveries(projectId, deliveries) {
         deliveriesSheet.getLastRow() + 1,
         1,
         rows.length,
-        13
+        15
       ).setValues(rows);
     }
 
@@ -778,7 +786,7 @@ function getProjectDeliveries(projectId) {
       });
     }
 
-    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 13).getValues();
+    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 15).getValues();
 
     // Filtrar por proyecto y mapear
     const deliveries = data
@@ -796,7 +804,9 @@ function getProjectDeliveries(projectId) {
         orden: row[9] || 0,
         startTime: row[10] || '',
         turn: row[11] || '',
-        priority: row[12] === 'true'
+        priority: row[12] === 'true',
+        numBultos: (row[13] !== '' && row[13] != null) ? Number(row[13]) : null,
+        denominacionBultos: row[14] || ''
       }))
       // Ordenar por día y luego por orden dentro del día
       .sort((a, b) => {
@@ -1033,7 +1043,7 @@ function getProjectRoute(projectId, dia) {
       return createJSONResponse({ status: 'success', data: [], message: 'Sin entregas' });
     }
 
-    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 13).getValues();
+    const data = deliveriesSheet.getRange(2, 1, lastRow - 1, 15).getValues();
 
     var items = data
       .filter(function(row) { return row[0] === projectId && row[4] === dia; })
@@ -1047,7 +1057,9 @@ function getProjectRoute(projectId, dia) {
           orden: row[9] || 0,
           startTime: row[10] || '',
           turn: row[11] || '',
-          priority: row[12] === 'true'
+          priority: row[12] === 'true',
+          numBultos: (row[13] !== '' && row[13] != null) ? Number(row[13]) : null,
+          denominacionBultos: row[14] || ''
         };
       })
       .sort(function(a, b) { return (a.orden || 0) - (b.orden || 0); });

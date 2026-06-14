@@ -881,6 +881,8 @@ export default function RouteEditor({
           startTime: item.startTime || '',
           turn: item.turn || '',
           priority: item.priority || false,
+          numBultos: item.numBultos ?? null,
+          denominacionBultos: item.denominacionBultos || '',
         }))
       )
 
@@ -1118,6 +1120,30 @@ export default function RouteEditor({
       const normalItems = dayItems.filter(i => !i.priority)
 
       return { ...prev, [catalanDay]: [...priorityItems, ...normalItems] }
+    })
+    setIsDirty(true)
+  };
+
+  // Actualizar nº/denominación de bultos de un centro (modo recogida)
+  const updateItemBultos = (itemId: string, field: 'numBultos' | 'denominacionBultos', value: string) => {
+    const dayMapping: { [k: string]: string } = {
+      'lunes': 'Dilluns', 'martes': 'Dimarts', 'miércoles': 'Dimecres',
+      'jueves': 'Dijous', 'viernes': 'Divendres'
+    }
+    const catalanDay = dayMapping[selectedDayInDayView.toLowerCase()] || selectedDayInDayView
+
+    setWeeklyPlansByDay(prev => {
+      const dayItems = [...(prev[catalanDay] || [])]
+      const itemIndex = dayItems.findIndex(i => i.id === itemId)
+      if (itemIndex === -1) return prev
+      const item = dayItems[itemIndex]
+      if (field === 'numBultos') {
+        const n = parseInt(value, 10)
+        dayItems[itemIndex] = { ...item, numBultos: isNaN(n) ? null : n }
+      } else {
+        dayItems[itemIndex] = { ...item, denominacionBultos: value }
+      }
+      return { ...prev, [catalanDay]: dayItems }
     })
     setIsDirty(true)
   };
@@ -1406,6 +1432,34 @@ export default function RouteEditor({
                                   </span>
                                 )}
                               </div>
+                              {(config.mode === 'recogida' || config.type === 'pickup') && (
+                                <div
+                                  className="flex items-center gap-2 mt-1.5"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    placeholder="Nº"
+                                    value={item.numBultos ?? ''}
+                                    onChange={(e) => updateItemBultos(item.id, 'numBultos', e.target.value)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    draggable={false}
+                                    className="w-14 px-2 py-0.5 text-xs border rounded"
+                                    aria-label="Número de bultos"
+                                  />
+                                  <input
+                                    type="text"
+                                    placeholder="Denominación bultos"
+                                    value={item.denominacionBultos ?? ''}
+                                    onChange={(e) => updateItemBultos(item.id, 'denominacionBultos', e.target.value)}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    draggable={false}
+                                    className="flex-1 px-2 py-0.5 text-xs border rounded min-w-0"
+                                    aria-label="Denominación de bultos"
+                                  />
+                                </div>
+                              )}
                             </div>
 
                             <div className="flex items-center gap-2 flex-shrink-0">

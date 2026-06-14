@@ -1476,6 +1476,8 @@ function DeliveryModule({
                 startTime: d.startTime || '',
                 turn: d.turn || '',
                 priority: d.priority || false,
+                numBultos: d.numBultos ?? null,
+                denominacionBultos: d.denominacionBultos || '',
               })
             })
             // Ordenar por el campo orden dentro de cada día
@@ -1551,6 +1553,8 @@ function DeliveryModule({
             // Enriquecer con datos actuales del CSV + preservar priority del proyecto
             const enriched: any = { ...existingPlan, deliveryDay: day }
             if (item.priority) enriched.priority = true
+            if (item.numBultos != null) enriched.numBultos = item.numBultos
+            if (item.denominacionBultos) enriched.denominacionBultos = item.denominacionBultos
             if (item.startTime) enriched.activities = existingPlan.activities.length > 0
               ? existingPlan.activities
               : [{ day, turn: item.turn || '', activity: '', startTime: item.startTime }]
@@ -1576,6 +1580,8 @@ function DeliveryModule({
               reason: 'adelantado',
             }
             if (item.priority) syntheticPlan.priority = true
+            if (item.numBultos != null) syntheticPlan.numBultos = item.numBultos
+            if (item.denominacionBultos) syntheticPlan.denominacionBultos = item.denominacionBultos
             grouped[spanishDay].push(syntheticPlan)
           }
         })
@@ -2917,6 +2923,8 @@ export default function Home() {
         monitor: "",
         type: "delivery" as const,
         priority: (plan as any).priority || false,
+        numBultos: (plan as any).numBultos ?? null,
+        denominacionBultos: (plan as any).denominacionBultos || '',
         filteredActivities: activitiesToUse,
         originalActivities: plan.activities.length,
       }

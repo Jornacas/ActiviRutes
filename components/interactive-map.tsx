@@ -15,6 +15,8 @@ export interface RouteItem {
   type: "delivery" | "pickup"
   originalIndex?: number
   priority?: boolean
+  numBultos?: number | null
+  denominacionBultos?: string
 }
 
 interface InteractiveMapProps {
