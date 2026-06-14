@@ -5,7 +5,8 @@
       "Bash(npm run build)",
       "Bash(npx tsc:*)",
       "Bash(git commit:*)",
-      "Bash(npx clasp:*)"
+      "Bash(npx clasp:*)",
+      "Bash(clasp deploy:*)"
     ],
     "deny": [],
     "ask": []

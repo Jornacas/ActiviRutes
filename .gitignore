@@ -25,3 +25,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.vercel
+.env*.local
+
+# memoria de sesión ACTIVI (STATUS/notes/history son volátiles; DECISIONS.md sí se commitea)
+STATUS.md
+notes.md
+.claude/history/

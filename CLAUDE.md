@@ -367,3 +367,26 @@ Key interfaces are defined across multiple files:
 - **Domain**: `activi-rutes.vercel.app`
 - **Build**: Automatic deployment from main branch
 - **Environment**: Production-ready with comprehensive error logging
+
+## SISTEMA DE MEMORIA ACTIVI
+Este proyecto usa memoria en capas revisable en ficheros (no base vectorial), para que el usuario
+pueda ver, corregir y borrar lo que el sistema recuerda. `DECISIONS.md`/`STATUS.md`/`notes.md` son
+la fuente de verdad primaria del estado y las decisiones del proyecto.
+- `DECISIONS.md` — decisiones de arquitectura (append-only, con porqué y fecha). Verdad estable. **Commiteado.**
+- `STATUS.md` — checkpoint vivo de la sesión (se reescribe cada sesión). **En `.gitignore`.**
+- `notes.md` — scratchpad de sesión (único canal de escritura libre; se vacía en cada checkpoint). **En `.gitignore`.**
+- `.claude/history/` — instantáneas de STATUS al cerrar sesión. **En `.gitignore`.**
+
+Protocolo de sesión: al ARRANCAR, leer en orden CLAUDE.md → DECISIONS.md → STATUS.md (el hook
+SessionStart inyecta DECISIONS+STATUS; CLAUDE.md ya lo carga Claude Code) y resumir en una frase
+dónde nos quedamos y la próxima acción. Durante el trabajo, escribir hallazgos sueltos SOLO en
+`notes.md`. A media sesión (≈mitad de contexto, NUNCA al final), ejecutar `/checkpoint`. Al cerrar,
+ejecutar `/handoff`. Lo que se estabiliza en STATUS asciende a DECISIONS.md (decisión) o a este
+fichero (regla). Mantenimiento periódico con `/distill`.
+
+### Condición de parada
+Condición de "hecho" por defecto en tareas largas: **build sin errores (`npm run build`, o
+`npx tsc --noEmit` para una comprobación rápida de tipos) y commit hecho**. No hay framework de
+tests en el repo, así que el build limpio es la red de seguridad. No dar por terminada una tarea
+automatizada antes de cumplir esto. Si un cambio afecta a Apps Script, "hecho" incluye redeploy
+(`clasp`) y anotar la nueva versión.

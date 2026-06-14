@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"[Console]::OutputEncoding=[Text.Encoding]::UTF8; if (Test-Path DECISIONS.md) { Get-Content -Raw -Encoding UTF8 DECISIONS.md }; ''; if (Test-Path STATUS.md) { Get-Content -Raw -Encoding UTF8 STATUS.md }; ''; '=== Resume en una frase donde nos quedamos y la proxima accion. Si STATUS.md parece desactualizado o no cuadra con el codigo, avisalo antes de continuar. ==='\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"'=== Antes de comprimir el contexto: vuelca notes.md a STATUS.md y actualiza el checkpoint si hay estado sin guardar. ==='\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force '.claude/history' | Out-Null; if (Test-Path STATUS.md) { Copy-Item STATUS.md ('.claude/history/STATUS_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.md') }\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
