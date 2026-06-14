@@ -1313,6 +1313,10 @@ function DeliveryModule({
   // Centros ya recogidos (centro → fecha ISO), agregados de los proyectos de recogida
   const [pickedUp, setPickedUp] = useState<Record<string, string>>({})
 
+  // Auto-guardado: cambios sin guardar (borrador en localStorage + aviso al salir)
+  const [isDirty, setIsDirty] = useState(false)
+  const userEditedRef = useRef(false) // true solo tras una edición real del usuario
+
   // Pre-filtrar escuelas por actividades seleccionadas ANTES de generar el plan
   // Esto es crucial: el filtro de actividades afecta qué días tiene cada centro,
   // y por tanto a qué día se le asigna la entrega
@@ -1356,6 +1360,8 @@ function DeliveryModule({
   const [selectedNextWeekCenters, setSelectedNextWeekCenters] = useState<Set<string>>(new Set())
 
   const toggleNextWeekCenter = useCallback((schoolName: string) => {
+    userEditedRef.current = true
+    setIsDirty(true)
     setSelectedNextWeekCenters(prev => {
       const newSet = new Set(prev)
       if (newSet.has(schoolName)) {
@@ -1511,6 +1517,22 @@ function DeliveryModule({
   // Cargar reorganización guardada: primero desde proyecto (Sheets), fallback a localStorage
   useEffect(() => {
     const loadReorganization = async () => {
+      // Borrador autoguardado (cambios sin guardar) tiene prioridad al recargar
+      try {
+        const draftRaw = localStorage.getItem(`draft_${tipo}_${weekStartStr}`)
+        if (draftRaw) {
+          const d = JSON.parse(draftRaw)
+          userEditedRef.current = false
+          setSavedReorganization(d.reorganizedItems || null)
+          if (Array.isArray(d.nextWeekCenters) && d.nextWeekCenters.length) setSelectedNextWeekCenters(new Set(d.nextWeekCenters))
+          if (Array.isArray(d.holidays) && d.holidays.length) setHolidays(d.holidays.map((f: string) => ({ date: new Date(f), name: 'Festivo' })))
+          if (Array.isArray(d.activities) && d.activities.length) setSelectedActivities(d.activities)
+          setIsDirty(true) // hay cambios sin guardar
+          return
+        }
+      } catch {}
+      userEditedRef.current = false
+      setIsDirty(false)
       if (activeProject) {
         try {
           const deliveries = await getProjectDeliveries(activeProject.id)
@@ -1575,8 +1597,39 @@ function DeliveryModule({
 
   // Escuchar cambios del editor de rutas (callback onApplyChanges)
   const handleRouteReorganization = useCallback((reorganizedItems: { [day: string]: any[] }) => {
+    userEditedRef.current = true
+    setIsDirty(true)
     setSavedReorganization(reorganizedItems)
   }, [])
+
+  // Limpiar borrador y marcar como guardado (tras guardar en el proyecto)
+  const clearDraft = useCallback(() => {
+    setIsDirty(false)
+    userEditedRef.current = false
+    try { localStorage.removeItem(`draft_${tipo}_${weekStartStr}`) } catch {}
+  }, [tipo, weekStartStr])
+
+  // Auto-guardar borrador del trabajo en curso (solo tras edición real del usuario)
+  useEffect(() => {
+    if (!userEditedRef.current) return
+    try {
+      localStorage.setItem(`draft_${tipo}_${weekStartStr}`, JSON.stringify({
+        reorganizedItems: savedReorganization,
+        nextWeekCenters: Array.from(selectedNextWeekCenters),
+        holidays: holidays.map(h => format(h.date, 'yyyy-MM-dd')),
+        activities: selectedActivities,
+        ts: Date.now(),
+      }))
+    } catch {}
+  }, [savedReorganization, selectedNextWeekCenters, holidays, selectedActivities, tipo, weekStartStr])
+
+  // Aviso al refrescar/salir si hay cambios sin guardar
+  useEffect(() => {
+    if (!isDirty) return
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isDirty])
 
   // Agrupar centros por día: proyecto guardado es fuente de verdad, si no distribución automática
   const plansByDay = useMemo(() => {
@@ -1830,9 +1883,14 @@ function DeliveryModule({
                 ({holidays.length} festivo{holidays.length > 1 ? 's' : ''})
               </span>
             )}
-            {activeProject && (
+            {activeProject && !isDirty && (
               <span className="text-green-600 ml-2 font-medium">
                 &middot; Proyecto guardado
+              </span>
+            )}
+            {isDirty && (
+              <span className="text-amber-600 ml-2 font-medium">
+                &middot; ● cambios sin guardar (autoguardado local)
               </span>
             )}
           </div>
@@ -1984,6 +2042,7 @@ function DeliveryModule({
                   const deliveries = buildDeliveries()
                   await saveProjectDeliveries(activeProject.id, deliveries)
                   setProjectSaved(true)
+                  clearDraft()
                   alert('Proyecto actualizado')
                 } else {
                   // Crear nuevo proyecto
@@ -2003,6 +2062,7 @@ function DeliveryModule({
                     const newProject = projects.find(p => p.id === projectId)
                     if (newProject) setActiveProject(newProject)
                     setProjectSaved(true)
+                    clearDraft()
                     alert('Proyecto creado y guardado')
                   }
                 }
